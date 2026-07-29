@@ -2,9 +2,10 @@
   "name": "ai-interview-coach",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "npm install --prefix frontend && npm run build --prefix frontend",
     "build": "npm install --prefix frontend && npm run build --prefix frontend",
     "start": "node server.js"
   },
