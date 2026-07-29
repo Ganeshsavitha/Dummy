@@ -38,7 +38,7 @@ async function getAICompletion(prompt, systemPrompt = "", isJson = false) {
   // 1. Prefer Gemini API if configured
   if (hasGemini) {
     try {
-      const modelName = isJson ? "gemini-1.5-flash" : "gemini-1.5-flash";
+      const modelName = isJson ? "gemini-2.0-flash" : "gemini-2.0-flash";
       const model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: isJson ? { responseMimeType: "application/json" } : undefined
