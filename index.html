@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intervue AI - Premium Interview Preparation Platform</title>
+  <link rel="stylesheet" href="CSS/style.css">
+  <!-- Lucide/Feather Icons for elegant vector icons -->
+  <script src="https://unpkg.com/feather-icons"></script>
+  <!-- Chart.js for beautiful analytics visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- jsPDF for downloading performance reports client-side -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- Canvas Confetti for showing fireworks on high scores -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+</head>
+<body class="dark"> <!-- Defaulting to premium dark mode -->
+
+  <div class="app-container">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="app-sidebar">
+      <div class="sidebar-logo">
+        <i data-feather="terminal"></i>
+        <span>Intervue AI</span>
+      </div>
+      
+      <ul class="sidebar-menu">
+        <li class="menu-item active" data-target="view-home">
+          <a href="#home"><i data-feather="home"></i><span>Home</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-dashboard" style="display: none;">
+          <a href="#dashboard"><i data-feather="grid"></i><span>Dashboard</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-recruitment-student" style="display: none;">
+          <a href="#my-rounds"><i data-feather="trending-up"></i><span>My Rounds</span></a>
+        </li>
+        <li class="menu-item hr-only" data-target="view-recruitment-hr" style="display: none;">
+          <a href="#recruitment-hr"><i data-feather="users"></i><span>Recruitment HR</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-placement-student" style="display: none;">
+          <a href="#placement-student"><i data-feather="briefcase"></i><span>Placements</span></a>
+        </li>
+        <li class="menu-item company-only" data-target="view-company-dashboard" style="display: none;">
+          <a href="#company-portal"><i data-feather="terminal"></i><span>Company Portal</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-interview" style="display: none;">
+          <a href="#interview"><i data-feather="mic"></i><span>AI Interview</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-mcq" style="display: none;">
+          <a href="#mcq"><i data-feather="check-square"></i><span>MCQ Practice</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-coding" style="display: none;">
+          <a href="#coding"><i data-feather="code"></i><span>Coding Round</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-resume" style="display: none;">
+          <a href="#resume"><i data-feather="file-text"></i><span>Resume Scan</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-roadmap" style="display: none;">
+          <a href="#roadmap"><i data-feather="map"></i><span>Roadmap Gen</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-leaderboard" style="display: none;">
+          <a href="#leaderboard"><i data-feather="award"></i><span>Leaderboard</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-achievements" style="display: none;">
+          <a href="#achievements"><i data-feather="gift"></i><span>Badges</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-notes" style="display: none;">
+          <a href="#notes"><i data-feather="edit-3"></i><span>Revision Notes</span></a>
+        </li>
+        <li class="menu-item admin-only" data-target="view-admin" style="display: none;">
+          <a href="#admin"><i data-feather="shield"></i><span>Admin Panel</span></a>
+        </li>
+        <li class="menu-item login-required" data-target="view-settings" style="display: none;">
+          <a href="#settings"><i data-feather="settings"></i><span>Settings</span></a>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user" id="sidebar-user-panel" style="display: none;">
+          <div class="user-avatar" id="avatar-letters">JD</div>
+          <div class="user-info">
+            <span class="user-name" id="user-display-name">Jane Doe</span>
+            <span class="user-role" id="user-display-role">Full Stack Engineer</span>
+          </div>
+        </div>
+        <button class="btn-primary" id="btn-login-trigger" style="width: 100%;">
+          <i data-feather="log-in" style="vertical-align: middle; margin-right: 6px;"></i><span>Sign In</span>
+        </button>
+        <button class="btn-secondary" id="btn-logout" style="width: 100%; display: none;">
+          <i data-feather="log-out" style="vertical-align: middle; margin-right: 6px;"></i><span>Logout</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="app-content">
+      
+      <!-- Top header bar -->
+      <header class="content-header">
+        <div class="search-bar">
+          <i data-feather="search"></i>
+          <input type="text" class="search-input" id="global-search" placeholder="Global search questions, topics...">
+        </div>
+
+        <div class="header-controls">
+          <button class="header-btn" id="theme-toggle" title="Toggle Dark/Light theme">
+            <i data-feather="sun" id="theme-icon"></i>
+          </button>
+          <div class="streak-badge header-btn" style="width: auto; border-radius: 20px; padding: 0 12px; display: none;" id="header-streak">
+            <i data-feather="zap" style="color: var(--warning); fill: var(--warning); margin-right: 4px;"></i>
+            <span id="header-streak-val">0</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Viewport area -->
+      <div class="main-viewport">
+        
+        <!-- =============================================
+             CAMPUS PLACEMENT STUDENT TIMELINE VIEW
+             ============================================= -->
+        <section class="view-section" id="view-placement-student">
+          <div class="section-header">
+            <h2>Campus Placement Drives</h2>
+            <p>Participate in visiting companies' hiring campaigns and monitor active progression</p>
+          </div>
+
+          <!-- Alert for Live Session availability -->
+          <div id="placement-live-exam-alert" class="glass-panel" style="display: none; border-left: 5px solid var(--primary); padding: 20px; margin-bottom: 24px; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <div style="background: rgba(79,70,229,0.15); color: var(--primary); width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                <i data-feather="bell" class="animate-pulse"></i>
+              </div>
+              <div>
+                <h4 style="font-weight: 700;" id="placement-alert-title">Active Hiring Assessment Started!</h4>
+                <p style="font-size: 0.85em; color: var(--text-muted);" id="placement-alert-details">Drive name & Round info</p>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <span id="placement-alert-countdown" style="font-weight: 800; font-size: 1.25em; color: var(--warning);">00:00</span>
+              <button class="btn-primary" id="btn-placement-alert-start">Start Assessment</button>
+            </div>
+          </div>
+
+          <!-- Selection details & drives timeline grid -->
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+            <div>
+              <h3 style="font-size: 1.15em; margin-bottom: 16px;">Registered Drives & Steppers</h3>
+              <div id="placement-student-drives-list" style="display: flex; flex-direction: column; gap: 20px;">
+                <!-- Filled dynamically -->
+              </div>
+            </div>
+
+            <div>
+              <h3 style="font-size: 1.15em; margin-bottom: 16px;">My Placement History</h3>
+              <div class="glass-panel" style="padding: 20px;" id="placement-student-history-container">
+                <!-- List past results -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             CAMPUS PLACEMENT COMPANY HR PORTAL
+             ============================================= -->
+        <section class="view-section" id="view-company-dashboard">
+          <div class="section-header">
+            <h2>Campus Placement Recruiter Hub</h2>
+            <p>Configure placement drives, build assessments, run live drives, and view candidate selection funnels</p>
+          </div>
+
+          <!-- Sub-navigation tabs -->
+          <div class="glass-panel" style="display: flex; gap: 12px; padding: 12px; margin-bottom: 24px;">
+            <button class="btn-primary placement-tab-btn" id="btn-tab-drives" data-subtarget="placement-subview-drives" style="padding: 8px 16px;">Hiring Drives</button>
+            <button class="btn-secondary placement-tab-btn" id="btn-tab-builder" data-subtarget="placement-subview-builder" style="padding: 8px 16px;">Assessment Builder</button>
+            <button class="btn-secondary placement-tab-btn" id="btn-tab-monitor" data-subtarget="placement-subview-monitor" style="padding: 8px 16px;">Live Drive Ticker</button>
+          </div>
+
+          <!-- SUBVIEW 1: Hiring Drives Manager -->
+          <div class="placement-subview active-subview" id="placement-subview-drives">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+              <h3>Active & Draft Hiring Campaigns</h3>
+              <button class="btn-primary" id="btn-create-new-drive">
+                <i data-feather="plus" style="width: 16px; height: 16px; margin-right: 4px;"></i> Create Hiring Drive
+              </button>
+            </div>
+            
+            <div class="dashboard-grid" id="placement-drives-grid-list" style="grid-template-columns: repeat(3, 1fr); gap: 20px;">
+              <!-- Drives loaded dynamically -->
+            </div>
+          </div>
+
+          <!-- SUBVIEW 2: Assessment Rounds & Questions Builder -->
+          <div class="placement-subview" id="placement-subview-builder" style="display: none;">
+            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 24px;">
+              <!-- Left panel: Rounds management -->
+              <div class="glass-panel" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+                <h3 style="border-bottom: 1px solid var(--border-main); padding-bottom: 10px;">Rounds Progression</h3>
+                <div id="placement-builder-rounds-list" style="display: flex; flex-direction: column; gap: 12px;">
+                  <!-- Dynamic round lists -->
+                </div>
+                <button class="btn-secondary" id="btn-builder-add-round" style="width: 100%;">
+                  <i data-feather="plus"></i> Add New Round
+                </button>
+              </div>
+
+              <!-- Right panel: Selected Round settings & questions -->
+              <div class="glass-panel" style="padding: 20px; display: flex; flex-direction: column; gap: 20px;">
+                <h3 id="placement-builder-active-round-title">Configure Round Criteria</h3>
+                <div class="form-grid-rounds" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                  <div class="form-group">
+                    <label>Round Name</label>
+                    <input type="text" class="form-control" id="p-round-name">
+                  </div>
+                  <div class="form-group">
+                    <label>Type</label>
+                    <select class="form-control" id="p-round-type">
+                      <option value="mcq">MCQ Quiz</option>
+                      <option value="coding">Coding Assessment</option>
+                      <option value="hr">AI HR Interview</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Passing Percentage (%)</label>
+                    <input type="number" class="form-control" id="p-round-percentage" value="75">
+                  </div>
+                  <div class="form-group">
+                    <label>Time Limit (Mins)</label>
+                    <input type="number" class="form-control" id="p-round-time" value="30">
+                  </div>
+                </div>
+
+                <!-- Questions Manager -->
+                <div style="border-top: 1px solid var(--border-main); padding-top: 20px;">
+                  <h4>Round Questions Bank</h4>
+                  
+                  <div style="display: flex; gap: 12px; margin-top: 12px; margin-bottom: 20px;">
+                    <button class="btn-secondary" id="btn-builder-manual-q">Manual Add</button>
+                    <button class="btn-secondary" id="btn-builder-ai-gen">AI Generate (Gemini)</button>
+                    <button class="btn-secondary" id="btn-builder-pdf-upload" style="position: relative; overflow: hidden;">
+                      Upload PDF
+                      <input type="file" id="p-pdf-file-input" accept=".pdf" style="position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;">
+                    </button>
+                  </div>
+
+                  <div id="placement-builder-questions-list" style="display: flex; flex-direction: column; gap: 12px; max-height: 350px; overflow-y: auto;">
+                    <!-- Question previews -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUBVIEW 3: Live Session monitor -->
+          <div class="placement-subview" id="placement-subview-monitor" style="display: none;">
+            <div class="glass-panel" style="padding: 20px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h3 id="placement-monitor-drive-name">Hiring Drive Session</h3>
+                <p id="placement-monitor-round-details" style="color: var(--text-muted);">Active assessment details</p>
+              </div>
+              <div style="display: flex; gap: 12px;">
+                <button class="btn-primary" id="btn-monitor-start-session">START LIVE SESSION</button>
+                <button class="btn-danger" id="btn-monitor-stop-session" style="display: none;">TERMINATE SESSION</button>
+              </div>
+            </div>
+
+            <!-- Stats metrics -->
+            <div class="shortlist-stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
+              <div class="shortlist-stat-box" style="background: rgba(79,70,229,0.06); border: 1px solid rgba(79,70,229,0.2); border-radius: 10px; padding: 16px; text-align: center;">
+                <h4 style="color: var(--primary);">Live Ticker Timer</h4>
+                <div style="font-size: 1.8em; font-weight: 800; color: var(--primary);" id="placement-live-timer">00:00</div>
+              </div>
+              <div class="shortlist-stat-box" style="background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.2); border-radius: 10px; padding: 16px; text-align: center;">
+                <h4 style="color: var(--success);">Submissions</h4>
+                <div style="font-size: 1.8em; font-weight: 800; color: var(--success);" id="placement-live-submissions">0</div>
+              </div>
+              <div class="shortlist-stat-box" style="background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 10px; padding: 16px; text-align: center;">
+                <h4 style="color: var(--warning);">Qualified Candidates</h4>
+                <div style="font-size: 1.8em; font-weight: 800; color: var(--warning);" id="placement-live-qualified">0</div>
+              </div>
+              <div class="shortlist-stat-box" style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.2); border-radius: 10px; padding: 16px; text-align: center;">
+                <h4 style="color: var(--danger);">Rejected</h4>
+                <div style="font-size: 1.8em; font-weight: 800; color: var(--danger);" id="placement-live-rejected">0</div>
+              </div>
+            </div>
+
+            <!-- Table of candidates progression -->
+            <div class="glass-panel" style="padding: 20px;">
+              <h3>Hiring Drive Candidate Standings</h3>
+              <table class="activity-table" style="margin-top: 16px;">
+                <thead>
+                  <tr><th>Student Name</th><th>Current Round</th><th>Status</th><th>Score</th><th>Action</th></tr>
+                </thead>
+                <tbody id="placement-monitor-table-body">
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             STUDENT RECRUITMENT VIEW
+             ============================================= -->
+        <section class="view-section" id="view-recruitment-student">
+          <div class="section-header">
+            <h2>My Recruitment Rounds</h2>
+            <p>Track your recruitment progress, thresholds, and unlock rounds</p>
+          </div>
+          
+          <!-- Banner for eligibility message -->
+          <div id="student-recruitment-banner" style="display: none; margin-bottom: 24px;"></div>
+          
+          <div class="timeline-container" id="student-rounds-timeline">
+            <!-- Stepper timeline rendered dynamically -->
+          </div>
+        </section>
+
+        <!-- =============================================
+             RECRUITMENT HR VIEW
+             ============================================= -->
+        <section class="view-section" id="view-recruitment-hr">
+          <div class="section-header">
+            <h2>Company Recruitment Dashboard</h2>
+            <p>Configure assessment rounds, track live shortlists, and generate selection reports</p>
+          </div>
+          
+          <!-- Top Campaign Summary Cards -->
+          <div class="dashboard-grid" style="margin-bottom: 30px;">
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Total Registered</span>
+                <span class="stat-val" id="hr-stat-registered">0</span>
+              </div>
+              <div class="stat-icon" style="background: rgba(79,70,229,0.15); color: var(--primary);"><i data-feather="users"></i></div>
+            </div>
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Appeared</span>
+                <span class="stat-val" id="hr-stat-appeared">0</span>
+              </div>
+              <div class="stat-icon" style="background: rgba(6,182,212,0.15); color: var(--info);"><i data-feather="eye"></i></div>
+            </div>
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Selected</span>
+                <span class="stat-val" id="hr-stat-selected">0</span>
+              </div>
+              <div class="stat-icon" style="background: rgba(16,185,129,0.15); color: var(--success);"><i data-feather="check-circle"></i></div>
+            </div>
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Selection Rate</span>
+                <span class="stat-val" id="hr-stat-selection-rate">0%</span>
+              </div>
+              <div class="stat-icon" style="background: rgba(245,158,11,0.15); color: var(--warning);"><i data-feather="pie-chart"></i></div>
+            </div>
+          </div>
+
+          <!-- Configuration & Funnel Charts -->
+          <div class="dashboard-grid" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 30px; gap: 24px;">
+            <!-- Configuration Settings & Rounds Manager -->
+            <div class="glass-panel" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-main); padding-bottom:10px;">
+                <h3 style="font-size: 1.15em;">Progression Settings</h3>
+                <div style="display:flex; align-items:center; gap: 8px;">
+                  <span style="font-size: 0.85em; color: var(--text-muted);">Auto-Shortlist</span>
+                  <label class="switch-toggle">
+                    <input type="checkbox" id="hr-auto-shortlist-toggle">
+                    <span class="slider-toggle rounded-toggle"></span>
+                  </label>
+                </div>
+              </div>
+              
+              <h4 style="font-size:0.95em; color:var(--text-muted);">Configure Recruitment Rounds</h4>
+              <div class="form-grid-rounds" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:12px;">
+                <input type="hidden" id="round-config-id">
+                <div class="form-group" style="grid-column: span 2;">
+                  <label style="font-size:0.8em;">Round Name</label>
+                  <input type="text" class="form-control" id="round-name" placeholder="e.g. Java Assessment">
+                </div>
+                <div class="form-group">
+                  <label style="font-size:0.8em;">Assessment Type</label>
+                  <select class="form-control" id="round-type">
+                    <option value="mcq">Multiple Choice (MCQ)</option>
+                    <option value="coding">Coding Sandbox</option>
+                    <option value="hr">AI HR Interview</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label style="font-size:0.8em;">Subject Topic</label>
+                  <input type="text" class="form-control" id="round-subject" placeholder="e.g. Java OOP">
+                </div>
+                <div class="form-group">
+                  <label style="font-size:0.8em;">Passing Percentage (%)</label>
+                  <input type="number" class="form-control" id="round-percentage" value="70">
+                </div>
+                <div class="form-group">
+                  <label style="font-size:0.8em;">Min Score (out of 10)</label>
+                  <input type="number" step="0.1" class="form-control" id="round-min-score" value="7.0">
+                </div>
+                <div class="form-group">
+                  <label style="font-size:0.8em;">Time Limit (Mins)</label>
+                  <input type="number" class="form-control" id="round-time-limit" value="30">
+                </div>
+                <div class="form-group">
+                  <label style="font-size:0.8em;">Round Weightage (%)</label>
+                  <input type="number" class="form-control" id="round-weightage" value="25">
+                </div>
+                <div style="grid-column: span 2; display:flex; gap:12px; align-items:center;">
+                  <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.85em; cursor:pointer;">
+                    <input type="checkbox" id="round-negative-marking"> Negative Marking
+                  </label>
+                  <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.85em; cursor:pointer;">
+                    <input type="checkbox" id="round-mandatory" checked> Mandatory
+                  </label>
+                </div>
+                <button class="btn-primary" id="btn-add-round-submit" style="grid-column: span 2; width:100%; margin-top:8px;">
+                  Save Configured Round
+                </button>
+              </div>
+            </div>
+
+            <!-- Recruitment Funnel Chart -->
+            <div class="glass-panel" style="padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+              <h3 style="font-size:1.15em; border-bottom:1px solid var(--border-main); padding-bottom:10px;">Progression Funnel Analytics</h3>
+              <div style="position: relative; height: 310px; width: 100%;">
+                <canvas id="recruitment-funnel-chart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Configured Rounds List -->
+          <div class="glass-panel" style="padding:20px; margin-bottom:30px;">
+            <h3 style="font-size: 1.15em; border-bottom:1px solid var(--border-main); padding-bottom:10px; margin-bottom:16px;">Active Campaigns Stepper</h3>
+            <div style="display:flex; flex-direction:column; gap:12px;" id="hr-rounds-manager-list">
+              <!-- Active rounds configure dynamically -->
+            </div>
+          </div>
+
+          <!-- Live Round Statistics Selector -->
+          <div class="glass-panel" style="padding: 20px; margin-bottom:30px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid var(--border-main); padding-bottom:10px;">
+              <h3 style="font-size: 1.15em;">Live Round Shortlisting Board</h3>
+              <select class="form-control" id="hr-stats-round-selector" style="width: auto; min-width: 200px;">
+                <!-- Filled dynamically -->
+              </select>
+            </div>
+
+            <!-- Shortlist sub-stats -->
+            <div class="shortlist-stats-grid" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:20px;">
+              <div class="shortlist-stat-box" style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.2); border-radius:10px; padding:12px; text-align:center;">
+                <h4 style="font-size:0.8em; color:var(--success);">Qualified</h4>
+                <div style="font-size:1.8em; font-weight:800; color:var(--success);" id="hr-stat-qualified">0</div>
+              </div>
+              <div class="shortlist-stat-box" style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.2); border-radius:10px; padding:12px; text-align:center;">
+                <h4 style="font-size:0.8em; color:var(--danger);">Disqualified</h4>
+                <div style="font-size:1.8em; font-weight:800; color:var(--danger);" id="hr-stat-disqualified">0</div>
+              </div>
+              <div class="shortlist-stat-box" style="background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.2); border-radius:10px; padding:12px; text-align:center;">
+                <h4 style="font-size:0.8em; color:var(--warning);">Pending Review</h4>
+                <div style="font-size:1.8em; font-weight:800; color:var(--warning);" id="hr-stat-pending">0</div>
+              </div>
+              <div class="shortlist-stat-box" style="background:rgba(148,163,184,0.06); border:1px solid rgba(148,163,184,0.2); border-radius:10px; padding:12px; text-align:center;">
+                <h4 style="font-size:0.8em; color:var(--text-light);">Absent</h4>
+                <div style="font-size:1.8em; font-weight:800; color:var(--text-light);" id="hr-stat-absent">0</div>
+              </div>
+            </div>
+
+            <!-- Publish manual review alerts panel -->
+            <div id="hr-publish-controls-container" style="margin-bottom: 20px;"></div>
+
+            <!-- Tabbed lists of candidate states -->
+            <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:20px;">
+              <div>
+                <h4 style="font-size:0.95em; color:var(--success); margin-bottom:10px;">Qualified Candidates</h4>
+                <table class="activity-table">
+                  <thead>
+                    <tr><th>Name</th><th>Username</th><th>Score</th></tr>
+                  </thead>
+                  <tbody id="hr-list-qualified-body"></tbody>
+                </table>
+              </div>
+              <div>
+                <h4 style="font-size:0.95em; color:var(--danger); margin-bottom:10px;">Disqualified / Eliminated</h4>
+                <table class="activity-table">
+                  <thead>
+                    <tr><th>Name</th><th>Username</th><th>Score</th></tr>
+                  </thead>
+                  <tbody id="hr-list-disqualified-body"></tbody>
+                </table>
+              </div>
+              <div style="margin-top:20px;">
+                <h4 style="font-size:0.95em; color:var(--warning); margin-bottom:10px;">Pending Review (Awaiting Publish)</h4>
+                <table class="activity-table">
+                  <thead>
+                    <tr><th>Name</th><th>Username</th><th>Score</th></tr>
+                  </thead>
+                  <tbody id="hr-list-pending-body"></tbody>
+                </table>
+              </div>
+              <div style="margin-top:20px;">
+                <h4 style="font-size:0.95em; color:var(--text-light); margin-bottom:10px;">Absent Students</h4>
+                <table class="activity-table">
+                  <thead>
+                    <tr><th>Name</th><th>Username</th></tr>
+                  </thead>
+                  <tbody id="hr-list-absent-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Final Selections Panel -->
+          <div class="glass-panel" style="padding: 20px; margin-bottom:30px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-main); padding-bottom:10px; margin-bottom:20px;">
+              <h3 style="font-size: 1.15em;">Final Selections Board</h3>
+              <div style="display:flex; gap:12px;">
+                <button class="btn-secondary" id="btn-download-csv" style="padding:6px 12px; font-size:0.85em; border-color:var(--primary); color:var(--primary);">
+                  <i data-feather="file-text" style="width:14px; height:14px; margin-right:4px;"></i> Download Excel (CSV)
+                </button>
+                <button class="btn-primary" id="btn-download-pdf" style="padding:6px 12px; font-size:0.85em;">
+                  <i data-feather="download" style="width:14px; height:14px; margin-right:4px;"></i> Download PDF Report
+                </button>
+              </div>
+            </div>
+            
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:20px;">
+              <div>
+                <h4 style="font-size:0.95em; color:var(--success); margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+                  <i data-feather="check-circle" style="color:var(--success);"></i> Selected Candidates
+                </h4>
+                <div style="display:flex; flex-direction:column; gap:10px;" id="hr-final-selected-list"></div>
+              </div>
+              <div>
+                <h4 style="font-size:0.95em; color:var(--warning); margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+                  <i data-feather="clock" style="color:var(--warning);"></i> Waiting List
+                </h4>
+                <div style="display:flex; flex-direction:column; gap:10px;" id="hr-final-waiting-list"></div>
+              </div>
+              <div>
+                <h4 style="font-size:0.95em; color:var(--danger); margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+                  <i data-feather="x-circle" style="color:var(--danger);"></i> Rejected Candidates
+                </h4>
+                <div style="display:flex; flex-direction:column; gap:10px;" id="hr-final-rejected-list"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      <div class="main-viewport">
+        
+        <!-- =============================================
+             1. HOME LANDING VIEW
+             ============================================= -->
+        <section class="view-section active" id="view-home">
+          <div class="hero-wrapper">
+            <div class="hero-content">
+              <span class="hero-badge">Next-Gen Interview Prep</span>
+              <h1 class="hero-title">Master Tech Interviews with Gemini AI</h1>
+              <p class="hero-description">The ultimate SaaS prep platform featuring smart AI code evaluations, MCQ test generators, behavioral analyzers, and resume scanners. Land your dream job today.</p>
+              <div class="hero-actions">
+                <button class="btn-primary" id="btn-hero-start">Start Free Trial</button>
+                <a href="#features" class="btn-secondary" style="text-align: center; display: inline-flex; align-items: center; justify-content: center;">Learn More</a>
+              </div>
+            </div>
+            <div class="hero-image">
+              <div class="hero-art-box">
+                <i data-feather="cpu" style="width: 120px; height: 120px; color: var(--primary); opacity: 0.15;"></i>
+                <div class="floating-card card-1">
+                  <i data-feather="check-circle" style="color: var(--success);"></i>
+                  <div>
+                    <h5 style="margin: 0; font-size: 0.85em; font-weight: 700; color: #1e1b4b;">Mock Review</h5>
+                    <p style="margin: 0; font-size: 0.7em; color: var(--text-light);">Score: 9.2 / 10</p>
+                  </div>
+                </div>
+                <div class="floating-card card-2">
+                  <i data-feather="code" style="color: var(--primary);"></i>
+                  <div>
+                    <h5 style="margin: 0; font-size: 0.85em; font-weight: 700; color: #1e1b4b;">ATS Score</h5>
+                    <p style="margin: 0; font-size: 0.7em; color: var(--text-light);">Scanning Resume...</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-header" id="features">
+            <h2>Platform Features</h2>
+            <p>Built with enterprise analytics and real-time AI tools</p>
+          </div>
+          
+          <div class="feature-grid">
+            <div class="feature-card glass-panel">
+              <div class="feature-icon-wrapper"><i data-feather="cpu"></i></div>
+              <h3>AI Mock Interviews</h3>
+              <p>Realistic technical, behavioral, and HR questions evaluated across confidence, communication, and correctness.</p>
+            </div>
+            <div class="feature-card glass-panel">
+              <div class="feature-icon-wrapper"><i data-feather="code"></i></div>
+              <h3>Interactive Coding Rounds</h3>
+              <p>Code in Java, Python, or SQL, execute mock tests, and get optimization suggestions with complexity reports.</p>
+            </div>
+            <div class="feature-card glass-panel">
+              <div class="feature-icon-wrapper"><i data-feather="file-text"></i></div>
+              <h3>ATS Resume Scanning</h3>
+              <p>Scan your resume for job keywords, missing skills, and receive custom resume-based interview prep queries.</p>
+            </div>
+            <div class="feature-card glass-panel">
+              <div class="feature-icon-wrapper"><i data-feather="map"></i></div>
+              <h3>AI study roadmaps</h3>
+              <p>Input target company and available hours to instantly produce weekly roadmaps with exercises and resource notes.</p>
+            </div>
+          </div>
+          
+          <div class="section-header">
+            <h2>Statistics and Pricing</h2>
+            <p>Accelerating placements across major companies</p>
+          </div>
+          <div class="dashboard-grid" style="max-width: 1200px; margin: 0 auto 60px;">
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Questions Solved</span>
+                <span class="stat-val">240,000+</span>
+              </div>
+              <div class="stat-icon"><i data-feather="activity"></i></div>
+            </div>
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">ATS Score Avg</span>
+                <span class="stat-val">84 / 100</span>
+              </div>
+              <div class="stat-icon"><i data-feather="bar-chart-2"></i></div>
+            </div>
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Mock Success</span>
+                <span class="stat-val">94.8%</span>
+              </div>
+              <div class="stat-icon"><i data-feather="thumbs-up"></i></div>
+            </div>
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Active Users</span>
+                <span class="stat-val">12,500+</span>
+              </div>
+              <div class="stat-icon"><i data-feather="users"></i></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             2. DASHBOARD VIEW
+             ============================================= -->
+        <section class="view-section" id="view-dashboard">
+          <div class="dashboard-grid">
+            <div class="welcome-card glass-panel">
+              <h2>Welcome back, <span id="dash-user-name">Student</span>!</h2>
+              <p>Keep up your momentum. Practice coding rounds or MCQs today to maintain your current streak badge status!</p>
+            </div>
+            
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Completed Interviews</span>
+                <span class="stat-val" id="dash-completed-count">0</span>
+              </div>
+              <div class="stat-icon"><i data-feather="mic"></i></div>
+            </div>
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">MCQ Accuracy</span>
+                <span class="stat-val" id="dash-accuracy">0%</span>
+              </div>
+              <div class="stat-icon"><i data-feather="target"></i></div>
+            </div>
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Average Score</span>
+                <span class="stat-val" id="dash-avg-score">0.0</span>
+              </div>
+              <div class="stat-icon"><i data-feather="trending-up"></i></div>
+            </div>
+            <div class="stat-widget glass-panel">
+              <div class="stat-info">
+                <span class="stat-label">Current Streak</span>
+                <span class="stat-val" id="dash-streak">0 Days</span>
+              </div>
+              <div class="stat-icon"><i data-feather="zap" style="color: var(--warning); fill: var(--warning);"></i></div>
+            </div>
+            
+            <div class="chart-panel glass-panel">
+              <h3>Practice Activity & Performance</h3>
+              <div style="position: relative; height: 100%; width: 100%; margin-top: 10px;">
+                <canvas id="dashboard-chart"></canvas>
+              </div>
+            </div>
+
+            <div class="skills-panel glass-panel">
+              <h3>Weak vs Strong Skills</h3>
+              <div style="margin-top: 15px; flex-grow: 1;">
+                <div class="skill-list-item">
+                  <div class="skill-label">
+                    <span>JavaScript (Closure/ES6)</span>
+                    <span style="color: var(--success);">Strong</span>
+                  </div>
+                  <div class="mini-progress-bg"><div class="mini-progress-fill" style="width: 85%; background: var(--success);"></div></div>
+                </div>
+                <div class="skill-list-item">
+                  <div class="skill-label">
+                    <span>Java Algorithms</span>
+                    <span style="color: var(--warning);">Medium</span>
+                  </div>
+                  <div class="mini-progress-bg"><div class="mini-progress-fill" style="width: 60%; background: var(--warning);"></div></div>
+                </div>
+                <div class="skill-list-item">
+                  <div class="skill-label">
+                    <span>System Design</span>
+                    <span style="color: var(--danger);">Weak</span>
+                  </div>
+                  <div class="mini-progress-bg"><div class="mini-progress-fill" style="width: 35%; background: var(--danger);"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="recent-activity-panel glass-panel">
+              <h3>Recently Attempted Interviews</h3>
+              <div style="overflow-x: auto;">
+                <table class="activity-table">
+                  <thead>
+                    <tr>
+                      <th>Topic</th>
+                      <th>Type</th>
+                      <th>Score Achieved</th>
+                      <th>Date Completed</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboard-history-table">
+                    <!-- Dynamic entries -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             3. AI INTERVIEW SECTION
+             ============================================= -->
+        <section class="view-section" id="view-interview">
+          <div class="section-header">
+            <h2>AI Mock Interview Cabin</h2>
+            <p>Generate real-time conceptual questions or behavioral HR drills reviewed by AI</p>
+          </div>
+          
+          <div class="dashboard-grid">
+            
+            <!-- Config panel -->
+            <div class="glass-panel" style="grid-column: span 1; padding: 24px;" id="interview-config-card">
+              <h3>Configure Session</h3>
+              <div style="margin-top: 16px;">
+                <div class="form-group">
+                  <label for="interview-subject">Subject / Language</label>
+                  <select class="form-control" id="interview-subject">
+                    <option value="Java">Java</option>
+                    <option value="Python">Python</option>
+                    <option value="JavaScript">JavaScript</option>
+                    <option value="React">React</option>
+                    <option value="Node">Node.js</option>
+                    <option value="SQL">SQL</option>
+                    <option value="HR Questions">HR Behavioral</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="interview-difficulty">Difficulty</label>
+                  <select class="form-control" id="interview-difficulty">
+                    <option value="Easy">Easy</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Hard">Hard</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="interview-role">Target Role</label>
+                  <input type="text" class="form-control" id="interview-role" value="Full Stack Software Engineer">
+                </div>
+                <div class="form-group">
+                  <label for="interview-type">Interview Focus</label>
+                  <select class="form-control" id="interview-type">
+                    <option value="normal">Technical Conceptual</option>
+                    <option value="hr">HR & Communication</option>
+                  </select>
+                </div>
+                <button class="btn-primary" id="btn-start-session" style="width: 100%; margin-top: 10px;">
+                  Start Mock Interview
+                </button>
+              </div>
+            </div>
+
+            <!-- Chat interface panel -->
+            <div class="glass-panel" style="grid-column: span 3; padding: 24px; min-height: 480px; display: flex; flex-direction: column;" id="interview-interactive-panel">
+              <div id="interview-empty-state" style="margin: auto; text-align: center; color: var(--text-light);">
+                <i data-feather="video" style="width: 48px; height: 48px; margin-bottom: 12px;"></i>
+                <p>Configure and launch your AI Interview Session on the left.</p>
+              </div>
+              
+              <div id="interview-chat-area" style="display: none; flex-grow: 1; flex-direction: column; gap: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--border-main);">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <i data-feather="clock" style="color: var(--primary);"></i>
+                    <span id="interview-timer-val" style="font-family: var(--font-mono); font-weight: 700;">00:00</span>
+                  </div>
+                  <div class="header-controls">
+                    <button class="header-btn" id="btn-speak-question" title="Read Question Aloud"><i data-feather="volume-2"></i></button>
+                    <button class="header-btn" id="btn-bookmark-question" title="Bookmark Question"><i data-feather="bookmark"></i></button>
+                  </div>
+                </div>
+
+                <div class="question-box" style="padding: 20px; background: var(--primary-light); border-left: 5px solid var(--primary); border-radius: 8px; margin-top: 15px;">
+                  <strong>Recruiter:</strong>
+                  <p id="interview-question-text" style="margin-top: 8px; font-weight: 500; font-size: 1.05em; line-height: 1.5;"></p>
+                </div>
+
+                <div class="answer-box" style="margin-top: 15px;">
+                  <label for="interview-answer-input" style="font-weight: 600; display: block; margin-bottom: 6px;">Your Answer:</label>
+                  <div style="position: relative;">
+                    <textarea class="form-control" id="interview-answer-input" placeholder="Type your answer here, or click the mic to speak..." style="min-height: 120px;"></textarea>
+                    <button class="header-btn" id="btn-voice-input" title="Record Voice Answer" style="position: absolute; right: 12px; bottom: 12px; width: 44px; height: 44px; background: var(--primary); color: white; border: none;">
+                      <i data-feather="mic" id="voice-input-icon"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding-top: 12px;">
+                  <div style="display: flex; gap: 10px;">
+                    <button class="btn-secondary" id="btn-skip-question">Skip</button>
+                  </div>
+                  <button class="btn-primary" id="btn-submit-answer">Submit Answer</button>
+                </div>
+
+                <!-- AI Feedback Panel -->
+                <div class="glass-panel" id="interview-feedback-box" style="display: none; padding: 20px; margin-top: 20px; background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.15);">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <h4 style="color: var(--success); display: flex; align-items: center; gap: 8px;"><i data-feather="award"></i> AI Feedback Report</h4>
+                    <span id="interview-score-badge" style="padding: 4px 10px; background: var(--success); color: white; border-radius: 12px; font-weight: 700;">Score: -</span>
+                  </div>
+                  
+                  <div id="hr-ratings-container" style="display: none; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
+                    <div style="background: var(--bg-base); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-main); text-align: center;">
+                      <span style="font-size: 0.75em; color: var(--text-light); text-transform: uppercase;">Confidence</span>
+                      <div style="font-weight: 700; margin-top: 4px;" id="hr-rating-confidence">-</div>
+                    </div>
+                    <div style="background: var(--bg-base); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-main); text-align: center;">
+                      <span style="font-size: 0.75em; color: var(--text-light); text-transform: uppercase;">Grammar</span>
+                      <div style="font-weight: 700; margin-top: 4px;" id="hr-rating-grammar">-</div>
+                    </div>
+                    <div style="background: var(--bg-base); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-main); text-align: center;">
+                      <span style="font-size: 0.75em; color: var(--text-light); text-transform: uppercase;">Communication</span>
+                      <div style="font-weight: 700; margin-top: 4px;" id="hr-rating-comm">-</div>
+                    </div>
+                  </div>
+
+                  <div style="margin-bottom: 12px;">
+                    <strong>Strengths:</strong>
+                    <ul id="interview-feedback-strengths" style="margin-left: 20px; margin-top: 4px; font-size: 0.95em;"></ul>
+                  </div>
+                  <div style="margin-bottom: 12px;">
+                    <strong>Suggestions for Improvement:</strong>
+                    <ul id="interview-feedback-improvements" style="margin-left: 20px; margin-top: 4px; font-size: 0.95em;"></ul>
+                  </div>
+                  <div>
+                    <strong>Model Answer:</strong>
+                    <p id="interview-feedback-model" style="font-size: 0.9em; margin-top: 6px; font-style: italic; color: var(--text-muted); line-height: 1.4;"></p>
+                  </div>
+                  <button class="btn-primary" id="btn-next-question" style="margin-top: 16px;">Next Question</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             4. MCQ PRACTICE SECTION
+             ============================================= -->
+        <section class="view-section" id="view-mcq">
+          <div class="section-header">
+            <h2>MCQ Practice Cabin</h2>
+            <p>Assess your quick technical accuracy with a 10-question multiple-choice deck</p>
+          </div>
+          
+          <div class="dashboard-grid">
+            
+            <!-- MCQ config panel -->
+            <div class="glass-panel" style="grid-column: span 1; padding: 24px;" id="mcq-config-card">
+              <h3>Configure Deck</h3>
+              <div style="margin-top: 16px;">
+                <div class="form-group">
+                  <label for="mcq-subject">Category / Topic</label>
+                  <select class="form-control" id="mcq-subject">
+                    <option value="Java">Java</option>
+                    <option value="SQL">SQL</option>
+                    <option value="HTML">HTML</option>
+                    <option value="CSS">CSS</option>
+                    <option value="JavaScript">JavaScript</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="mcq-difficulty">Difficulty</label>
+                  <select class="form-control" id="mcq-difficulty">
+                    <option value="Easy">Easy</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Hard">Hard</option>
+                  </select>
+                </div>
+                <button class="btn-primary" id="btn-start-mcq" style="width: 100%; margin-top: 10px;">
+                  Generate Practice Questions
+                </button>
+              </div>
+            </div>
+
+            <!-- MCQ deck content -->
+            <div class="glass-panel" style="grid-column: span 3; padding: 24px; min-height: 480px; display: flex; flex-direction: column;" id="mcq-deck-panel">
+              <div id="mcq-empty-state" style="margin: auto; text-align: center; color: var(--text-light);">
+                <i data-feather="check-square" style="width: 48px; height: 48px; margin-bottom: 12px;"></i>
+                <p>Configure options and generate your MCQ practice deck on the left.</p>
+              </div>
+              
+              <div id="mcq-session-area" style="display: none; flex-grow: 1; flex-direction: column; gap: 20px;">
+                <div id="mcq-progress-indicator">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 0.9em; font-weight: 600; color: var(--text-muted);">
+                      Question <span id="mcq-current-num">1</span> of 10
+                    </span>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                      <i data-feather="clock" style="color: var(--primary); width: 16px; height: 16px;"></i>
+                      <span id="mcq-timer-val" style="font-family: var(--font-mono); font-weight: 700; font-size: 0.95em;">00:00</span>
+                    </div>
+                  </div>
+                  <div class="progress-bar-bg"><div id="mcq-progress-fill" class="progress-bar-fill" style="width: 10%;"></div></div>
+                </div>
+
+                <div class="question-box" style="margin-top: 10px;">
+                  <h3 id="mcq-question-text" style="font-weight: 600; line-height: 1.5; font-size: 1.15em;"></h3>
+                </div>
+
+                <div id="mcq-options-list" style="margin-top: 15px; display: flex; flex-direction: column; gap: 12px;">
+                  <!-- MCQ options loaded dynamically -->
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; border-top: 1px solid var(--border-main); padding-top: 16px;">
+                  <button class="btn-secondary" id="btn-mcq-prev"><i data-feather="arrow-left" style="vertical-align: middle;"></i> Prev</button>
+                  <button class="btn-primary" id="btn-mcq-next">Next <i data-feather="arrow-right" style="vertical-align: middle;"></i></button>
+                  <button class="btn-primary" id="btn-mcq-submit" style="display: none;">Submit Quiz</button>
+                </div>
+              </div>
+
+              <!-- MCQ Summary Results Board -->
+              <div id="mcq-results-board" style="display: none; flex-grow: 1; flex-direction: column; gap: 20px;">
+                <div class="section-header" style="margin-bottom: 24px;">
+                  <h2>Practice Results</h2>
+                  <p>Check correct outputs and explanations below</p>
+                </div>
+                
+                <div class="score-circle-container">
+                  <div class="score-circle">
+                    <span id="mcq-score-val">-</span>
+                    <span class="score-denominator">/ 10</span>
+                  </div>
+                  <div id="mcq-badge-val" class="quiz-badge">-</div>
+                  <div style="font-size: 0.9em; color: var(--text-muted); margin-top: 8px;">
+                    Time Taken: <span id="mcq-time-elapsed">-</span>
+                  </div>
+                </div>
+
+                <div style="display: flex; justify-content: center; gap: 16px; margin-bottom: 20px;">
+                  <button class="btn-primary" id="btn-mcq-report"><i data-feather="download"></i> Download Report</button>
+                  <button class="btn-secondary" id="btn-mcq-practice-again">Practice Again</button>
+                  <button class="btn-secondary" id="btn-mcq-retry-wrong" style="border-color: var(--danger); color: var(--danger);"><i data-feather="refresh-cw"></i> Retry Wrong</button>
+                </div>
+
+                <div id="mcq-review-list" style="margin-top: 10px;">
+                  <!-- Answer list dynamically loaded -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             5. CODING ROUND SECTION
+             ============================================= -->
+        <section class="view-section" id="view-coding">
+          <div class="section-header">
+            <h2>Online Code IDE & AI Compiler</h2>
+            <p>Solve coding rounds, run mock compilations, and request optimization code reviews</p>
+          </div>
+          
+          <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;" class="glass-panel; padding: 12px 24px;">
+            <div style="display: flex; gap: 14px; align-items: center;">
+              <label for="coding-subject" style="margin: 0; font-weight: 600; font-size: 0.9em;">Subject Language:</label>
+              <select class="form-control" id="coding-subject" style="width: 140px; margin: 0;">
+                <option value="JavaScript">JavaScript</option>
+                <option value="Java">Java</option>
+                <option value="Python">Python</option>
+              </select>
+              
+              <label for="coding-difficulty" style="margin: 0; font-weight: 600; font-size: 0.9em; margin-left: 10px;">Difficulty:</label>
+              <select class="form-control" id="coding-difficulty" style="width: 120px; margin: 0;">
+                <option value="Easy">Easy</option>
+                <option value="Medium">Medium</option>
+                <option value="Hard">Hard</option>
+              </select>
+            </div>
+            <button class="btn-primary" id="btn-generate-code-challenge">Generate Coding Challenge</button>
+          </div>
+
+          <div id="coding-empty-state" style="text-align: center; padding: 100px 40px; color: var(--text-light);" class="glass-panel">
+            <i data-feather="code" style="width: 48px; height: 48px; margin-bottom: 12px;"></i>
+            <p>Generate a coding challenge above to start writing logic.</p>
+          </div>
+
+          <div class="ide-wrapper" id="coding-ide-panel" style="display: none;">
+            <!-- Left panel problem description -->
+            <div class="ide-left">
+              <div class="glass-panel" style="padding: 20px; flex-grow: 1;">
+                <h3 id="coding-problem-title">Problem Title</h3>
+                <p id="coding-problem-desc" style="margin-top: 12px; line-height: 1.6; font-size: 0.95em; color: var(--text-muted);"></p>
+                
+                <h4 style="margin-top: 20px;">Sample Input</h4>
+                <pre id="coding-sample-input" style="background: var(--bg-base); padding: 10px; border-radius: 6px; font-family: var(--font-mono); font-size: 0.85em; margin-top: 6px; border: 1px solid var(--border-main);"></pre>
+
+                <h4 style="margin-top: 12px;">Sample Output</h4>
+                <pre id="coding-sample-output" style="background: var(--bg-base); padding: 10px; border-radius: 6px; font-family: var(--font-mono); font-size: 0.85em; margin-top: 6px; border: 1px solid var(--border-main);"></pre>
+              </div>
+            </div>
+
+            <!-- Right panel IDE editor -->
+            <div class="ide-right">
+              <div class="ide-editor-header">
+                <span class="editor-title" id="editor-file-name">solution.js</span>
+              </div>
+              <div class="editor-textarea-container">
+                <textarea class="editor-textarea" id="coding-code-editor" spellcheck="false">// Write your code here...</textarea>
+              </div>
+              <div class="ide-editor-footer">
+                <button class="btn-secondary" id="btn-run-code">Run Sample Tests</button>
+                <button class="btn-primary" id="btn-submit-code">Submit Solution</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Console & AI Feedback outputs -->
+          <div class="dashboard-grid" id="coding-results-row" style="margin-top: 24px; display: none;">
+            <div class="glass-panel" style="grid-column: span 2; padding: 24px;">
+              <h3>Test Case Execution</h3>
+              <div class="testcase-tabs" style="margin-top: 15px;">
+                <div class="testcase-tab active" data-index="0">Test Case 1</div>
+                <div class="testcase-tab" data-index="1">Test Case 2</div>
+              </div>
+              <div class="console-output" id="coding-console-output">
+                Output console is empty.
+              </div>
+            </div>
+
+            <div class="glass-panel" style="grid-column: span 2; padding: 24px;" id="coding-ai-feedback-panel">
+              <h3>AI Code Review</h3>
+              <div id="code-review-loading" style="display: none; padding: 20px; text-align: center; color: var(--text-light);">
+                <div class="spinner" style="margin: 0 auto 10px;"></div>
+                AI is auditing code patterns...
+              </div>
+              <div id="code-review-content" style="margin-top: 15px;">
+                <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+                  <div style="background: var(--primary-light); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-main);">
+                    <span style="font-size: 0.75em; color: var(--text-light); text-transform: uppercase;">Time Complexity</span>
+                    <div style="font-weight: 700; margin-top: 4px; font-family: var(--font-mono);" id="code-comp-time">O(-)</div>
+                  </div>
+                  <div style="background: var(--primary-light); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-main);">
+                    <span style="font-size: 0.75em; color: var(--text-light); text-transform: uppercase;">Space Complexity</span>
+                    <div style="font-weight: 700; margin-top: 4px; font-family: var(--font-mono);" id="code-comp-space">O(-)</div>
+                  </div>
+                  <div style="background: var(--primary-light); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border-main);">
+                    <span style="font-size: 0.75em; color: var(--text-light); text-transform: uppercase;">AI Audit Score</span>
+                    <div style="font-weight: 700; margin-top: 4px;" id="code-audit-score">0 / 10</div>
+                  </div>
+                </div>
+
+                <strong>Optimization Recommendations:</strong>
+                <ul id="code-audit-suggestions" style="margin-left: 20px; margin-top: 6px; font-size: 0.95em; line-height: 1.5;"></ul>
+                
+                <strong style="display: block; margin-top: 16px;">Review Explanation:</strong>
+                <p id="code-audit-explanation" style="font-size: 0.9em; margin-top: 6px; color: var(--text-muted); line-height: 1.4;"></p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             6. RESUME ANALYZER SECTION
+             ============================================= -->
+        <section class="view-section" id="view-resume">
+          <div class="section-header">
+            <h2>ATS Resume Parser & Custom AI Prep</h2>
+            <p>Upload your resume to check keyword compatibility, missing skills, and get personalized questions</p>
+          </div>
+          
+          <div class="dashboard-grid">
+            <div class="glass-panel" style="grid-column: span 2; padding: 24px;">
+              <h3>Document Drop</h3>
+              <p style="color: var(--text-light); font-size: 0.9em; margin-top: 4px; margin-bottom: 20px;">Support TXT documents or pasting raw resume text below for immediate scanning.</p>
+              
+              <div class="upload-container" id="resume-drop-zone">
+                <i data-feather="upload-cloud"></i>
+                <h3>Drag & Drop Resume</h3>
+                <p style="color: var(--text-light); font-size: 0.85em; margin-top: 4px;">Only text files accepted. Click to choose file.</p>
+                <input type="file" id="resume-file-input" style="display: none;" accept=".txt">
+              </div>
+
+              <div style="margin-top: 20px;">
+                <label for="resume-text-input" style="font-weight: 600; display: block; margin-bottom: 6px;">Or Paste Resume Text:</label>
+                <textarea class="form-control" id="resume-text-input" placeholder="Paste your complete resume contents here..." style="min-height: 200px;"></textarea>
+              </div>
+
+              <button class="btn-primary" id="btn-scan-resume" style="width: 100%; margin-top: 20px;">Run ATS Scanning Review</button>
+            </div>
+
+            <!-- Parsed outputs -->
+            <div class="glass-panel" style="grid-column: span 2; padding: 24px;" id="resume-output-panel">
+              <div id="resume-empty-state" style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-light); min-height: 360px;">
+                <i data-feather="file-text" style="width: 48px; height: 48px; margin-bottom: 12px;"></i>
+                <p>Run resume scan to display ATS metrics and recommended prep challenges.</p>
+              </div>
+
+              <div id="resume-analysis-results" style="display: none;">
+                <h3>Audit Score Report</h3>
+                
+                <div class="score-circle-container" style="margin: 15px 0;">
+                  <div class="score-circle" style="border-color: var(--info);">
+                    <span id="resume-ats-score">-</span>
+                    <span class="score-denominator">ATS Score</span>
+                  </div>
+                </div>
+
+                <div class="dashboard-grid" style="margin-top: 20px;">
+                  <div style="grid-column: span 1;">
+                    <strong>Skills Extracted:</strong>
+                    <div id="resume-detected-skills" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;"></div>
+                  </div>
+                  <div style="grid-column: span 1;">
+                    <strong>Recommended Core Skills:</strong>
+                    <div id="resume-missing-skills" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;"></div>
+                  </div>
+                </div>
+
+                <div style="margin-top: 20px;">
+                  <strong>Grammar & Formatting Checklist:</strong>
+                  <p id="resume-feedback-formatting" style="font-size: 0.9em; margin-top: 6px; line-height: 1.4; color: var(--text-muted);"></p>
+                </div>
+
+                <div style="margin-top: 20px;">
+                  <strong>Custom Interview Preparation Queries:</strong>
+                  <ul id="resume-feedback-questions" style="margin-left: 20px; margin-top: 6px; font-size: 0.95em; line-height: 1.5;"></ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             7. ROADMAP GENERATOR SECTION
+             ============================================= -->
+        <section class="view-section" id="view-roadmap">
+          <div class="section-header">
+            <h2>Personalized Career Roadmap</h2>
+            <p>Generate study schedules and targeted practice topics customized to your career targets</p>
+          </div>
+          
+          <div class="dashboard-grid">
+            <div class="glass-panel" style="grid-column: span 1; padding: 24px;" id="roadmap-config-card">
+              <h3>Target Configuration</h3>
+              <div style="margin-top: 16px;">
+                <div class="form-group">
+                  <label for="roadmap-skill">Skill to Master</label>
+                  <input type="text" class="form-control" id="roadmap-skill" value="React Hooks & Redux">
+                </div>
+                <div class="form-group">
+                  <label for="roadmap-company">Target Company</label>
+                  <input type="text" class="form-control" id="roadmap-company" value="Meta">
+                </div>
+                <div class="form-group">
+                  <label for="roadmap-role">Target Role</label>
+                  <input type="text" class="form-control" id="roadmap-role" value="Senior Frontend Engineer">
+                </div>
+                <div class="form-group">
+                  <label for="roadmap-hours">Study Hours / Week</label>
+                  <input type="number" class="form-control" id="roadmap-hours" value="15">
+                </div>
+                <button class="btn-primary" id="btn-generate-roadmap" style="width: 100%; margin-top: 10px;">
+                  Build Career Path
+                </button>
+              </div>
+            </div>
+
+            <!-- Path results visual -->
+            <div class="glass-panel" style="grid-column: span 3; padding: 24px; min-height: 480px; display: flex; flex-direction: column;" id="roadmap-output-panel">
+              <div id="roadmap-empty-state" style="margin: auto; text-align: center; color: var(--text-light);">
+                <i data-feather="map" style="width: 48px; height: 48px; margin-bottom: 12px;"></i>
+                <p>Build your target configuration on the left to review customized roadmap schedules.</p>
+              </div>
+
+              <div id="roadmap-results" style="display: none;">
+                <h3 id="roadmap-title">Roadmap</h3>
+                <p id="roadmap-overview" style="margin-top: 8px; font-size: 0.95em; color: var(--text-muted); line-height: 1.5;"></p>
+                
+                <div id="roadmap-weekly-nodes" style="margin-top: 24px; display: flex; flex-direction: column; gap: 20px;">
+                  <!-- Nodes loaded dynamically -->
+                </div>
+
+                <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border-main);">
+                  <h4>Practice Mock Challenges</h4>
+                  <ul id="roadmap-questions-list" style="margin-left: 20px; margin-top: 10px; line-height: 1.5; font-size: 0.95em;"></ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             8. LEADERBOARD VIEW
+             ============================================= -->
+        <section class="view-section" id="view-leaderboard">
+          <div class="section-header">
+            <h2>Community Leaderboard</h2>
+            <p>See top performers and accuracy rankings this week</p>
+          </div>
+          
+          <div class="glass-panel" style="padding: 24px; max-width: 800px; margin: 0 auto;">
+            <table class="activity-table">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Full Name</th>
+                  <th>Streak</th>
+                  <th>Interviews</th>
+                  <th>Accuracy</th>
+                  <th>Average Score</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboard-table-body">
+                <!-- Loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =============================================
+             9. ACHIEVEMENTS SECTION
+             ============================================= -->
+        <section class="view-section" id="view-achievements">
+          <div class="section-header">
+            <h2>Badges & Accomplishments</h2>
+            <p>Earn career milestones by practicing on the platform</p>
+          </div>
+          
+          <div class="feature-grid" id="badges-grid">
+            <div class="feature-card glass-panel" style="text-align: center; opacity: 0.5;" id="badge-first">
+              <i data-feather="award" style="width: 60px; height: 60px; margin: 0 auto 16px; color: var(--primary);"></i>
+              <h3>First Step</h3>
+              <p>Completed first mock interview session.</p>
+            </div>
+            <div class="feature-card glass-panel" style="text-align: center; opacity: 0.5;" id="badge-streak">
+              <i data-feather="zap" style="width: 60px; height: 60px; margin: 0 auto 16px; color: var(--warning);"></i>
+              <h3>Consistent</h3>
+              <p>Maintained a 7-day interview practice streak.</p>
+            </div>
+            <div class="feature-card glass-panel" style="text-align: center; opacity: 0.5;" id="badge-perfect">
+              <i data-feather="star" style="width: 60px; height: 60px; margin: 0 auto 16px; color: var(--success);"></i>
+              <h3>Perfect Score</h3>
+              <p>Achieved a 10/10 score on any mock interview.</p>
+            </div>
+            <div class="feature-card glass-panel" style="text-align: center; opacity: 0.5;" id="badge-coding">
+              <i data-feather="code" style="width: 60px; height: 60px; margin: 0 auto 16px; color: var(--info);"></i>
+              <h3>IDE Master</h3>
+              <p>Completed 10 code challenges on the IDE console.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             10. REVISION NOTES SECTION
+             ============================================= -->
+        <section class="view-section" id="view-notes">
+          <div class="section-header">
+            <h2>Personal Notebook</h2>
+            <p>Manage interview revision lists, save favorites, and jot notes</p>
+          </div>
+          
+          <div class="dashboard-grid">
+            <div class="glass-panel" style="grid-column: span 1; padding: 24px;">
+              <h3>Create Note</h3>
+              <div style="margin-top: 16px;">
+                <div class="form-group">
+                  <label for="note-title">Title</label>
+                  <input type="text" class="form-control" id="note-title" placeholder="e.g. SQL Optimization">
+                </div>
+                <div class="form-group">
+                  <label for="note-content">Note Content</label>
+                  <textarea class="form-control" id="note-content" placeholder="Type key takeaways, shortcuts, algorithms..." style="min-height: 160px;"></textarea>
+                </div>
+                <button class="btn-primary" id="btn-save-note" style="width: 100%;">Save Takeaway</button>
+              </div>
+            </div>
+
+            <div class="glass-panel" style="grid-column: span 3; padding: 24px;">
+              <h3>Takeaways & Bookmarks</h3>
+              
+              <div style="margin-top: 20px;">
+                <div id="notes-results-list" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                  <!-- Dynamic notes -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             11. SETTINGS SECTION
+             ============================================= -->
+        <section class="view-section" id="view-settings">
+          <div class="section-header">
+            <h2>System Settings</h2>
+            <p>Manage theme preferences, reset account analytics, and details</p>
+          </div>
+          
+          <div class="glass-panel" style="padding: 32px; max-width: 600px; margin: 0 auto;">
+            <h3>User Profile settings</h3>
+            <div style="margin-top: 20px; border-bottom: 1px solid var(--border-main); padding-bottom: 20px;">
+              <div class="form-group">
+                <label>Theme Choice</label>
+                <div style="display: flex; gap: 10px;">
+                  <button class="btn-secondary" id="btn-theme-light">Light Mode</button>
+                  <button class="btn-primary" id="btn-theme-dark">Dark Mode</button>
+                </div>
+              </div>
+            </div>
+            
+            <div style="margin-top: 20px;">
+              <h3 style="color: var(--danger);">Reset Data Area</h3>
+              <p style="font-size: 0.85em; color: var(--text-light); margin-top: 4px;">Clears all your dashboard history logs, results statistics, and user session.</p>
+              <button class="btn-secondary" id="btn-reset-progress" style="margin-top: 12px; border-color: var(--danger); color: var(--danger);">
+                Clear Platform Progress
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- =============================================
+             12. ADMIN VIEW
+             ============================================= -->
+        <section class="view-section" id="view-admin">
+          <div class="section-header">
+            <h2>Admin Analytics Portal</h2>
+            <p>Review active accounts, candidate attempts, and system metrics</p>
+          </div>
+          
+          <div class="dashboard-grid">
+            <div class="glass-panel" style="grid-column: span 2; padding: 20px;">
+              <h3>Active Accounts</h3>
+              <table class="activity-table" style="margin-top: 12px;">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Name</th>
+                    <th>Role Target</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-users-table">
+                  <!-- Users loaded dynamically -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="glass-panel" style="grid-column: span 2; padding: 20px;">
+              <h3>Attempt Database Logs</h3>
+              <table class="activity-table" style="margin-top: 12px;">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Mode</th>
+                    <th>Score</th>
+                    <th>Topic</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-results-table">
+                  <!-- Log entries loaded dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Global Modal Dialog Overlay -->
+  <div class="modal-overlay" id="auth-modal-overlay">
+    <div class="modal-window glass-panel">
+      <!-- Login View Panel -->
+      <div id="auth-login-panel">
+        <h2 style="margin-bottom: 8px;">Welcome to Intervue AI</h2>
+        <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 24px;">Sign in to access mock кабины, custom roadmaps, and track streaks.</p>
+        
+        <div class="form-group">
+          <label for="login-username">Username</label>
+          <input type="text" class="form-control" id="login-username" value="student">
+        </div>
+        <div class="form-group" style="margin-bottom: 24px;">
+          <label for="login-password">Password</label>
+          <input type="password" class="form-control" id="login-password" value="password">
+        </div>
+
+        <button class="btn-primary" id="btn-login-submit" style="width: 100%; margin-bottom: 16px;">Sign In</button>
+        <div style="text-align: center; font-size: 0.85em; color: var(--text-muted);">
+          Don't have an account? <a href="#" id="auth-toggle-register" style="color: var(--primary); font-weight: 600; text-decoration: none;">Sign Up</a>
+        </div>
+      </div>
+
+      <!-- Register View Panel -->
+      <div id="auth-register-panel" style="display: none;">
+        <h2 style="margin-bottom: 8px;">Create Account</h2>
+        <p style="color: var(--text-muted); font-size: 0.9em; margin-bottom: 24px;">Set up your details to start practicing interviews.</p>
+        
+        <div class="form-group">
+          <label for="register-username">Username</label>
+          <input type="text" class="form-control" id="register-username" placeholder="e.g. coding_star">
+        </div>
+        <div class="form-group">
+          <label for="register-fullname">Full Name</label>
+          <input type="text" class="form-control" id="register-fullname" placeholder="e.g. Jane Doe">
+        </div>
+        <div class="form-group">
+          <label for="register-role">Target Role</label>
+          <input type="text" class="form-control" id="register-role" placeholder="e.g. Full Stack Engineer">
+        </div>
+        <div class="form-group" style="margin-bottom: 24px;">
+          <label for="register-password">Password</label>
+          <input type="password" class="form-control" id="register-password" placeholder="Min 6 characters">
+        </div>
+
+        <button class="btn-primary" id="btn-register-submit" style="width: 100%; margin-bottom: 16px;">Register Account</button>
+        <div style="text-align: center; font-size: 0.85em; color: var(--text-muted);">
+          Already have an account? <a href="#" id="auth-toggle-login" style="color: var(--primary); font-weight: 600; text-decoration: none;">Sign In</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notification container -->
+  <div class="toast-container" id="toast-deck"></div>
+
+  <!-- Loading Skeletons -->
+  <div id="thinking-ai-loader" style="display: none; position: fixed; bottom: 30px; left: 30px; z-index: 1000; padding: 12px 20px; font-weight: 600; font-size: 0.9em;" class="glass-panel">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div class="spinner" style="width: 16px; height: 16px; border-width: 2px; animation: spin 1s linear infinite; border-top-color: transparent; border-radius: 50%; border-style: solid; border-color: var(--primary);"></div>
+      <span>AI Recruiters are formatting queries...</span>
+    </div>
+  </div>
+
+  <!-- Core Platform Controllers module script -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
