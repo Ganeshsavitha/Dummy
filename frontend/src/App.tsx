@@ -75,6 +75,9 @@ export default function App() {
   const [passwordInput, setPasswordInput] = useState('');
   const [companyNameInput, setCompanyNameInput] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [fullNameInput, setFullNameInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
 
   // Layout navigation
   const [view, setView] = useState('dashboard');
@@ -497,6 +500,53 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const checkSession = async () => {
+      const token = localStorage.getItem('hiregrad_token');
+      if (token) {
+        try {
+          const res = await fetch(`${API_BASE}/api/placement/auth/me`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (data.success) {
+            setUser(data.user);
+            if (data.user.role === 'student') {
+              setStudentCgpa(data.user.cgpa);
+              setStudentDept(data.user.department);
+              setStudentSkills(data.user.skills);
+              setView('dashboard');
+              
+              // Load student registrations
+              try {
+                const regRes = await fetch(`${API_BASE}/api/placement/registrations/${data.user.username}`);
+                const regData = await regRes.json();
+                if (regData.success) {
+                  setRegisteredDrives(regData.registeredDrives);
+                }
+              } catch (err) {
+                console.error('Error fetching registrations in session check', err);
+              }
+            } else if (data.user.role === 'company') {
+              setView('drives');
+              setRecruitmentStep(1);
+              socket.emit('join-session', { username: data.user.username, role: 'company', driveId: 'hr' });
+            } else if (data.user.role === 'admin') {
+              setView('stats');
+            }
+          } else {
+            localStorage.removeItem('hiregrad_token');
+          }
+        } catch (err) {
+          console.error("Session auto-login error:", err);
+          localStorage.removeItem('hiregrad_token');
+        }
+      }
+    };
+    
+    // checkSession();
+  }, []);
+
+  useEffect(() => {
     if (view === 'stats' && user?.role === 'admin') {
       fetchAdminData();
     }
@@ -567,15 +617,21 @@ export default function App() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isRegistering) {
+      if (passwordInput !== confirmPasswordInput) {
+        alert("Passwords do not match!");
+        return;
+      }
       const res = await fetch(`${API_BASE}/api/placement/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: usernameInput, password: passwordInput, companyName: companyNameInput })
+        body: JSON.stringify({ fullName: fullNameInput, email: emailInput, password: passwordInput, role: authRole })
       });
       const data = await res.json();
       if (data.success) {
-        triggerToast('Recruiter account registered! Please log in.');
+        triggerToast('Account registered successfully! Please log in.');
         setIsRegistering(false);
+        setFullNameInput('');
+        setConfirmPasswordInput('');
       } else {
         alert(data.message || 'Registration failed');
       }
@@ -584,15 +640,16 @@ export default function App() {
         const res = await fetch(`${API_BASE}/api/placement/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: usernameInput, password: passwordInput })
+          body: JSON.stringify({ email: emailInput, password: passwordInput })
         });
         const data = await res.json();
         if (data.success) {
           setUser(data.company);
           setView('drives');
-          setRecruitmentStep(1); // Horizonal Stepper begins at Step 1
+          setRecruitmentStep(1); // Horizontal Stepper begins at Step 1
           socket.emit('join-session', { username: data.company.username, role: 'company', driveId: 'hr' });
           triggerToast(`Welcome back Recruiter, logged into ${data.company.companyName}!`);
+          localStorage.setItem('hiregrad_token', data.token);
         } else {
           alert(data.message || 'Invalid recruiter credentials');
         }
@@ -600,7 +657,7 @@ export default function App() {
         const res = await fetch(`${API_BASE}/api/placement/auth/student-login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: usernameInput, password: passwordInput })
+          body: JSON.stringify({ email: emailInput, password: passwordInput })
         });
         const data = await res.json();
         if (data.success) {
@@ -610,6 +667,7 @@ export default function App() {
           setStudentSkills(data.student.skills);
           setView('dashboard');
           triggerToast(`Logged in successfully as ${data.student.fullName}`);
+          localStorage.setItem('hiregrad_token', data.token);
           
           try {
             const regRes = await fetch(`${API_BASE}/api/placement/registrations/${data.student.username}`);
@@ -624,12 +682,23 @@ export default function App() {
           alert(data.message || 'Login failed');
         }
       } else if (authRole === 'admin') {
-        if (usernameInput === 'admin' && passwordInput === 'password') {
-          setUser({ username: 'admin', fullName: 'System Administrator', role: 'admin' });
+        const res = await fetch(`${API_BASE}/api/placement/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: emailInput, password: passwordInput })
+        });
+        const data = await res.json();
+        if (data.success && data.company && data.company.role === 'admin') {
+          setUser({
+            username: data.company.username,
+            fullName: data.company.companyName,
+            role: 'admin'
+          });
           setView('stats');
           triggerToast('Welcome back Admin!');
+          localStorage.setItem('hiregrad_token', data.token);
         } else {
-          alert('Invalid Admin credentials.');
+          alert(data.message || 'Invalid Admin credentials.');
         }
       }
     }
@@ -638,8 +707,11 @@ export default function App() {
   const handleLogout = () => {
     setUser(null);
     setView('dashboard');
-    setUsernameInput('');
+    setEmailInput('');
     setPasswordInput('');
+    setFullNameInput('');
+    setConfirmPasswordInput('');
+    localStorage.removeItem('hiregrad_token');
   };
 
   const handleDeleteUser = async (username: string) => {
@@ -1428,7 +1500,7 @@ export default function App() {
           </table>
 
           <div class="footer">
-            Intervue Portal - AI Interview Coach & Talent Acquisition Platform
+            HireGrad AI - Placement & Talent Acquisition Platform
           </div>
 
           <script>
@@ -1518,7 +1590,7 @@ export default function App() {
       {/* Main Sidebar */}
       <div className="sidebar">
         <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
-          <Shield style={{ color: 'var(--primary)' }} /> Intervue Portal
+          <Shield style={{ color: 'var(--primary)' }} /> HireGrad AI
         </h3>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flexGrow: 1 }}>
@@ -1635,36 +1707,45 @@ export default function App() {
 
               <div className="tab-bar">
                 <button className={`tab-btn ${authRole === 'student' ? 'active' : ''}`} onClick={() => { setAuthRole('student'); setIsRegistering(false); }}>Student</button>
-                <button className={`tab-btn ${authRole === 'company' ? 'active' : ''}`} onClick={() => setAuthRole('company')}>Company HR</button>
+                <button className={`tab-btn ${authRole === 'company' ? 'active' : ''}`} onClick={() => { setAuthRole('company'); setIsRegistering(false); }}>HR</button>
                 <button className={`tab-btn ${authRole === 'admin' ? 'active' : ''}`} onClick={() => { setAuthRole('admin'); setIsRegistering(false); }}>Admin</button>
               </div>
 
               <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {isRegistering && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '0.85rem' }}>Company Name</label>
-                    <input type="text" className="form-control" placeholder="e.g. Tata Group" value={companyNameInput} onChange={(e) => setCompanyNameInput(e.target.value)} required />
+                    <label style={{ fontSize: '0.85rem' }}>Full Name</label>
+                    <input type="text" className="form-control" placeholder="Enter full name" value={fullNameInput} onChange={(e) => setFullNameInput(e.target.value)} required />
                   </div>
                 )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '0.85rem' }}>Username</label>
-                  <input type="text" className="form-control" placeholder="Enter username" value={usernameInput} onChange={(e) => setUsernameInput(e.target.value)} required />
+                  <label style={{ fontSize: '0.85rem' }}>Email Address</label>
+                  <input type="email" className="form-control" placeholder="name@example.com" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} required />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '0.85rem' }}>Password</label>
                   <input type="password" className="form-control" placeholder="••••••••" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} required />
                 </div>
+                {isRegistering && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '0.85rem' }}>Confirm Password</label>
+                    <input type="password" className="form-control" placeholder="••••••••" value={confirmPasswordInput} onChange={(e) => setConfirmPasswordInput(e.target.value)} required />
+                  </div>
+                )}
 
                 <button type="submit" className="btn-primary" style={{ marginTop: '8px' }}>
-                  {isRegistering ? 'Register Recruiter Account' : 'Log In to System'}
+                  {isRegistering 
+                    ? (authRole === 'company' ? 'Register Recruiter Account' : 'Register Student Account')
+                    : 'Sign In'
+                  }
                 </button>
               </form>
 
-              {authRole === 'company' && (
+              {authRole !== 'admin' && (
                 <p style={{ textAlign: 'center', marginTop: '16px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  {isRegistering ? 'Already registered?' : 'New Recruiter?'} &nbsp;
+                  {isRegistering ? 'Already registered?' : "Don't have an account?"} &nbsp;
                   <span style={{ color: 'var(--primary)', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => setIsRegistering(!isRegistering)}>
-                    {isRegistering ? 'Log in here' : 'Register your company'}
+                    {isRegistering ? 'Log in here' : 'Register'}
                   </span>
                 </p>
               )}

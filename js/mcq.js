@@ -357,7 +357,7 @@ function downloadPdfReport() {
     doc.setTextColor(79, 70, 229);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
-    doc.text("INTERVUE AI - ACCURACY REPORT", 20, 25);
+    doc.text("HIREGRAD AI - ACCURACY REPORT", 20, 25);
     
     doc.setDrawColor(79, 70, 229);
     doc.setLineWidth(1);
@@ -395,6 +395,6 @@ function downloadPdfReport() {
         y += 10;
     });
 
-    doc.save(`intervue_mcq_${currentSubject.toLowerCase()}_report.pdf`);
+    doc.save(`hiregrad_mcq_${currentSubject.toLowerCase()}_report.pdf`);
     showToast("PDF report downloaded successfully.", "success");
 }

@@ -908,7 +908,7 @@ function downloadPdfReport() {
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
-    doc.text("INTERVUE AI - RECRUITMENT REPORT", 20, 26);
+    doc.text("HIREGRAD AI - RECRUITMENT REPORT", 20, 26);
     
     // Document Meta
     doc.setTextColor(...textColor);

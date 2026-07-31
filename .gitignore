@@ -32,3 +32,8 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Database and IDE files
+hiregrad.db
+.gemini/
+

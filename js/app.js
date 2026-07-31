@@ -573,5 +573,5 @@ document.addEventListener("DOMContentLoaded", () => {
     initRecruitment();
     initPlacement();
     
-    showToast("Intervue AI platform loaded successfully.", "success");
+    showToast("HireGrad AI platform loaded successfully.", "success");
 });
