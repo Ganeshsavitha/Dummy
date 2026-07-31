@@ -881,16 +881,22 @@ app.get("/api/placement/drives", async (req, res) => {
 
 app.post("/api/placement/drives", async (req, res) => {
   const { 
-    name, companyUsername, autoShortlist, jobRole, packageOffered, 
+    id, name, companyUsername, autoShortlist, jobRole, packageOffered, 
     assessmentDate, assessmentTime, duration, eligibleDepts, 
     minCgpa, eligibleBatch, maxStudentsLimit 
   } = req.body;
   try {
-    const newDrive = {
-      id: "drive_" + Date.now(),
+    const driveId = id || "drive_" + Date.now();
+    
+    // Check if it already exists to preserve rounds and status
+    const drives = await db.getPlacementDrives();
+    const existing = drives.find(d => d.id === driveId);
+    
+    const drive = {
+      id: driveId,
       companyUsername: companyUsername || "tata_hr",
       name: name || "New Hiring Campaign",
-      status: "Draft",
+      status: existing ? existing.status : "Draft",
       autoShortlist: autoShortlist || false,
       jobRole: jobRole || "Software Engineer",
       packageOffered: packageOffered || "7.5 LPA",
@@ -901,10 +907,10 @@ app.post("/api/placement/drives", async (req, res) => {
       minCgpa: minCgpa !== undefined ? parseFloat(minCgpa) : 7.0,
       eligibleBatch: eligibleBatch || "2026",
       maxStudentsLimit: maxStudentsLimit !== undefined ? parseInt(maxStudentsLimit) : 100,
-      rounds: []
+      rounds: existing ? existing.rounds : []
     };
-    await db.createPlacementDrive(newDrive);
-    res.json({ success: true, drive: newDrive });
+    const saved = await db.createPlacementDrive(drive);
+    res.json({ success: true, drive: saved });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

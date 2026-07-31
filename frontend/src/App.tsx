@@ -258,7 +258,7 @@ export default function App() {
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isLiveActive, setIsLiveActive] = useState(false);
   const [driveCandidates, setDriveCandidates] = useState<any[]>([]);
-  const [serverNetworkUrl, setServerNetworkUrl] = useState('http://localhost:3000');
+  const [serverNetworkUrl, setServerNetworkUrl] = useState(window.location.origin);
 
   // ==========================================
   // STUDENT VIEW STATES
@@ -356,7 +356,11 @@ export default function App() {
       const res = await fetch(`${API_BASE}/api/placement/network-info`);
       const data = await res.json();
       if (data.success) {
-        setServerNetworkUrl(`http://${data.localIp}:${data.port}`);
+        if (window.location.hostname === 'localhost') {
+          setServerNetworkUrl(`http://${data.localIp}:${data.port}`);
+        } else {
+          setServerNetworkUrl(window.location.origin);
+        }
       }
     } catch (err) {
       console.error('Error fetching network details', err);
@@ -826,6 +830,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: selectedDrive?.id,
           name: driveNameInput,
           companyUsername: user.username,
           autoShortlist: autoProgressionSwitch,
@@ -843,6 +848,7 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setSelectedDrive(data.drive);
+        fetchDrives();
         triggerToast('Hiring drive saved as draft! Advancing to rounds configurations.');
         setRecruitmentStep(2); 
       }
@@ -1236,10 +1242,6 @@ export default function App() {
   const joinStudentExam = async (driveId: string, roundId: string, timeLimit: number) => {
     if (!user) {
       alert('Unauthorized: Please log in to take the assessment.');
-      return;
-    }
-    if (!registeredDrives.includes(driveId)) {
-      alert('Unauthorized: You must register for this hiring drive before attending the exam.');
       return;
     }
     const targetD = drives.find(d => d.id === driveId);
@@ -1958,27 +1960,30 @@ export default function App() {
                       <div>🎓 <strong>Min CGPA:</strong> 7.0 CGPA</div>
                     </div>
 
-                    {registeredDrives.includes('drive_1') ? (
-                      (() => {
-                        const drive1 = drives.find(d => d.id === 'drive_1') || {
-                          id: 'drive_1',
-                          rounds: [
-                            { id: "r_1", name: "Aptitude Assessment", type: "mcq", timeLimit: 30, subject: "Aptitude" },
-                            { id: "r_2", name: "Programming Test", type: "coding", timeLimit: 45, subject: "JavaScript" },
-                            { id: "r_3", name: "AI HR Round", type: "hr", timeLimit: 15, subject: "Behavioral" }
-                          ]
-                        };
+                    {(() => {
+                      const drive1 = drives.find(d => d.id === 'drive_1') || {
+                        id: 'drive_1',
+                        status: 'Active',
+                        rounds: [
+                          { id: "r_1", name: "Aptitude Assessment", type: "mcq", timeLimit: 30, subject: "Aptitude" },
+                          { id: "r_2", name: "Programming Test", type: "coding", timeLimit: 45, subject: "JavaScript" },
+                          { id: "r_3", name: "AI HR Round", type: "hr", timeLimit: 15, subject: "Behavioral" }
+                        ]
+                      };
+                      const isDrive1Active = drive1.status === 'Active';
+                      if (isDrive1Active || registeredDrives.includes('drive_1')) {
                         return renderAttendButton(drive1);
-                      })()
-                    ) : (
-                      <button 
-                        className="btn-primary" 
-                        style={{ marginTop: '8px' }} 
-                        onClick={() => handleRegisterForDrive('drive_1')}
-                      >
-                        Register for Drive
-                      </button>
-                    )}
+                      }
+                      return (
+                        <button 
+                          className="btn-primary" 
+                          style={{ marginTop: '8px' }} 
+                          onClick={() => handleRegisterForDrive('drive_1')}
+                        >
+                          Register for Drive
+                        </button>
+                      );
+                    })()}
                   </div>
 
                   {drives.filter(d => d.id !== 'drive_1').map(drive => {
@@ -2003,18 +2008,16 @@ export default function App() {
                           <div>🎓 <strong>Min CGPA:</strong> {drive.minCgpa || 7.0} CGPA</div>
                         </div>
 
-                        {registeredDrives.includes(drive.id) ? (
-                          drive.status === 'Active' ? (
-                            renderAttendButton(drive)
-                          ) : (
-                            <button 
-                              className="btn-primary" 
-                              style={{ marginTop: '8px' }} 
-                              disabled
-                            >
-                              ✓ Registered (Awaiting Exam)
-                            </button>
-                          )
+                        {drive.status === 'Active' ? (
+                          renderAttendButton(drive)
+                        ) : registeredDrives.includes(drive.id) ? (
+                          <button 
+                            className="btn-primary" 
+                            style={{ marginTop: '8px' }} 
+                            disabled
+                          >
+                            ✓ Registered (Awaiting Exam)
+                          </button>
                         ) : (
                           <button 
                             className="btn-primary" 

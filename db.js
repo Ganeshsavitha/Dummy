@@ -745,17 +745,38 @@ async function createPlacementDrive(drive) {
   const { 
     id, name, companyUsername, autoShortlist, jobRole, packageOffered, 
     assessmentDate, assessmentTime, duration, eligibleDepts, 
-    minCgpa, eligibleBatch, maxStudentsLimit, rounds 
+    minCgpa, eligibleBatch, maxStudentsLimit, rounds, status 
   } = drive;
 
-  await dbRun(
-    `INSERT INTO placement_drives (id, company_username, name, status, auto_shortlist, job_role, package_offered, 
-     assessment_date, assessment_time, duration, eligible_depts, min_cgpa, eligible_batch, max_students_limit, rounds) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, companyUsername, name, "Draft", autoShortlist ? 1 : 0, jobRole, packageOffered,
-     assessmentDate, assessmentTime, duration, JSON.stringify(eligibleDepts || []), minCgpa, eligibleBatch, maxStudentsLimit, JSON.stringify(rounds || [])]
-  );
-  return drive;
+  const existing = await dbGet("SELECT id FROM placement_drives WHERE id = ?", [id]);
+  if (existing) {
+    await dbRun(
+      `UPDATE placement_drives SET name = ?, company_username = ?, auto_shortlist = ?, job_role = ?, package_offered = ?, 
+       assessment_date = ?, assessment_time = ?, duration = ?, eligible_depts = ?, min_cgpa = ?, eligible_batch = ?, 
+       max_students_limit = ? WHERE id = ?`,
+      [name, companyUsername, autoShortlist ? 1 : 0, jobRole, packageOffered,
+       assessmentDate, assessmentTime, duration, JSON.stringify(eligibleDepts || []), minCgpa, eligibleBatch, maxStudentsLimit, id]
+    );
+    const updatedDrive = await dbGet("SELECT * FROM placement_drives WHERE id = ?", [id]);
+    try {
+      updatedDrive.rounds = JSON.parse(updatedDrive.rounds || '[]');
+      updatedDrive.eligibleDepts = JSON.parse(updatedDrive.eligibleDepts || '[]');
+    } catch(e) {
+      updatedDrive.rounds = [];
+      updatedDrive.eligibleDepts = [];
+    }
+    updatedDrive.autoShortlist = updatedDrive.auto_shortlist === 1;
+    return updatedDrive;
+  } else {
+    await dbRun(
+      `INSERT INTO placement_drives (id, company_username, name, status, auto_shortlist, job_role, package_offered, 
+       assessment_date, assessment_time, duration, eligible_depts, min_cgpa, eligible_batch, max_students_limit, rounds) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, companyUsername, name, status || "Draft", autoShortlist ? 1 : 0, jobRole, packageOffered,
+       assessmentDate, assessmentTime, duration, JSON.stringify(eligibleDepts || []), minCgpa, eligibleBatch, maxStudentsLimit, JSON.stringify(rounds || [])]
+    );
+    return drive;
+  }
 }
 
 async function publishPlacementDrive(driveId) {
