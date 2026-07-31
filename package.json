@@ -8,8 +8,8 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "postinstall": "npm install --prefix frontend && npm run build --prefix frontend",
-    "build": "npm install --prefix frontend && npm run build --prefix frontend",
+    "postinstall": "npm rebuild sqlite3 --build-from-source && npm install --prefix frontend && npm run build --prefix frontend",
+    "build": "npm rebuild sqlite3 --build-from-source && npm install --prefix frontend && npm run build --prefix frontend",
     "start": "node server.js"
   },
   "keywords": [],
