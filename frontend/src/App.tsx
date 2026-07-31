@@ -96,21 +96,21 @@ export default function App() {
   const [recruitmentStep, setRecruitmentStep] = useState<number>(1); // Step 1 to Step 7
   
   // Step 1: Create Hiring Drive Forms
-  const [driveCompanyName, setDriveCompanyName] = useState('TATA Consultancy Services');
+  const [driveCompanyName, setDriveCompanyName] = useState('');
   const [driveCompanyLogo, setDriveCompanyLogo] = useState<string | null>(null);
-  const [driveNameInput, setDriveNameInput] = useState('TCS Ninja Campus Sourcing 2026');
-  const [jobRoleInput, setJobRoleInput] = useState('Systems Engineer Trainee');
-  const [packageInput, setPackageInput] = useState('8.5 LPA');
-  const [locationInput, setLocationInput] = useState('Chennai / Bangalore');
-  const [assessmentDateInput, setAssessmentDateInput] = useState('2026-07-30');
+  const [driveNameInput, setDriveNameInput] = useState('');
+  const [jobRoleInput, setJobRoleInput] = useState('');
+  const [packageInput, setPackageInput] = useState('');
+  const [locationInput, setLocationInput] = useState('');
+  const [assessmentDateInput, setAssessmentDateInput] = useState(new Date().toISOString().split('T')[0]);
   const [assessmentTimeInput, setAssessmentTimeInput] = useState('10:00');
   const [driveDurationInput, setDriveDurationInput] = useState(90);
   const [eligibleDeptsInput, setEligibleDeptsInput] = useState<string[]>(['CSE', 'IT', 'ECE']);
   const [minCgpaInput, setMinCgpaInput] = useState(7.0);
   const [eligibleBatchInput, setEligibleBatchInput] = useState('2026');
-  const [maxStudentsInput, setMaxStudentsInput] = useState(150);
-  const [driveDescription, setDriveDescription] = useState('Comprehensive engineering hiring drive for our cloud infrastructures solutions division.');
-  const [autoProgressionSwitch, setAutoProgressionSwitch] = useState(true);
+  const [maxStudentsInput, setMaxStudentsInput] = useState(100);
+  const [driveDescription, setDriveDescription] = useState('');
+  const [autoProgressionSwitch, setAutoProgressionSwitch] = useState(false);
 
   // Dialog Previews
   const [showDrivePreview, setShowDrivePreview] = useState(false);
@@ -2441,35 +2441,7 @@ export default function App() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Active Drive:</span>
-                <select 
-                  className="form-control" 
-                  value={selectedDrive?.id || ''} 
-                  onChange={(e) => {
-                    const drive = drives.find(d => d.id === e.target.value);
-                    if (drive) {
-                      setSelectedDrive(drive);
-                      setDriveNameInput(drive.name);
-                      setDriveCompanyName(drive.companyName || drive.name.split(' ')[0]);
-                      setJobRoleInput(drive.jobRole || 'Systems Engineer Trainee');
-                      setPackageInput(drive.packageOffered || '8.5 LPA');
-                      setLocationInput(drive.location || 'campus assessment');
-                      setAssessmentDateInput(drive.assessmentDate || '2026-07-30');
-                      setAssessmentTimeInput(drive.assessmentTime || '10:00');
-                      setDriveDurationInput(drive.duration || 90);
-                      setEligibleDeptsInput(drive.eligibleDepts || ['CSE', 'IT', 'ECE']);
-                      setMinCgpaInput(drive.minCgpa || 7.0);
-                      setEligibleBatchInput(drive.eligibleBatch || '2026');
-                      setMaxStudentsInput(drive.maxStudentsLimit || 150);
-                      setDriveDescription(drive.description || '');
-                      setAutoProgressionSwitch(drive.autoShortlist || false);
-                    }
-                  }}
-                  style={{ minWidth: '220px', background: 'var(--bg-dark-card)', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '6px', padding: '6px 12px' }}
-                >
-                  {drives.map(d => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
+                <strong style={{ color: 'var(--primary)', fontSize: '1rem' }}>{driveNameInput || 'None'}</strong>
               </div>
             </div>
             {/* Header Horizontal Stepper */}
