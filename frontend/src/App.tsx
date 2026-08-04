@@ -2540,6 +2540,7 @@ export default function App() {
               <LiveMeeting 
                 interview={activeInterview}
                 userRole="student"
+                socket={socket}
                 onLeave={() => {
                   setActiveInterview(null);
                   setView('student-interviews');
@@ -2604,6 +2605,7 @@ export default function App() {
               <LiveMeeting 
                 interview={activeInterview}
                 userRole="hr"
+                socket={socket}
                 onLeave={() => {
                   setActiveInterview(null);
                   setView('hr-interviews-dashboard');

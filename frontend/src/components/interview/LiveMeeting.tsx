@@ -15,11 +15,12 @@ interface Message {
 interface LiveMeetingProps {
   interview: Interview;
   userRole: 'student' | 'hr';
+  socket: any;
   onLeave: () => void;
   onSubmitEvaluation: (feedback: Feedback) => void;
 }
 
-export default function LiveMeeting({ interview, userRole, onLeave, onSubmitEvaluation }: LiveMeetingProps) {
+export default function LiveMeeting({ interview, userRole, socket, onLeave, onSubmitEvaluation }: LiveMeetingProps) {
   const [cameraActive, setCameraActive] = useState(true);
   const [micActive, setMicActive] = useState(true);
   const [screenSharing, setScreenSharing] = useState(false);
@@ -31,7 +32,15 @@ export default function LiveMeeting({ interview, userRole, onLeave, onSubmitEval
   ]);
   const [inputText, setInputText] = useState('');
   const [timerSeconds, setTimerSeconds] = useState(0);
+  
+  // WebRTC Connection States
+  const [remoteStreamActive, setRemoteStreamActive] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
   // Scroll to bottom of chat
   useEffect(() => {
@@ -45,6 +54,178 @@ export default function LiveMeeting({ interview, userRole, onLeave, onSubmitEval
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // WebRTC Peer Connection & Signaling Setup
+  useEffect(() => {
+    let active = true;
+
+    const setupRTC = async () => {
+      try {
+        console.log("[WebRTC] Requesting local camera and microphone permissions...");
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        
+        if (!active) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+
+        localStreamRef.current = stream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+
+        // Initialize Peer Connection with Public Google STUN servers
+        console.log("[WebRTC] Creating RTCPeerConnection...");
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        });
+        peerConnectionRef.current = pc;
+
+        // Add Local tracks
+        stream.getTracks().forEach(track => {
+          pc.addTrack(track, stream);
+        });
+
+        // Debug state listeners
+        pc.onconnectionstatechange = () => {
+          console.log(`[WebRTC State] connectionState: ${pc.connectionState}`);
+        };
+        pc.oniceconnectionstatechange = () => {
+          console.log(`[WebRTC State] iceConnectionState: ${pc.iceConnectionState}`);
+        };
+        pc.onsignalingstatechange = () => {
+          console.log(`[WebRTC State] signalingState: ${pc.signalingState}`);
+        };
+
+        // ICE candidate callback
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            console.log("[WebRTC] Emitting ICE candidate to signaling server");
+            socket.emit("ice-candidate", { meetingId: interview.meetingId, candidate: event.candidate });
+          }
+        };
+
+        // Incoming track listener
+        pc.ontrack = (event) => {
+          console.log("[WebRTC] Received remote stream track event:", event);
+          const remoteStream = event.streams[0];
+          if (remoteVideoRef.current && remoteStream) {
+            remoteVideoRef.current.srcObject = remoteStream;
+            setRemoteStreamActive(true);
+          }
+        };
+
+        // Signaling handlers
+        socket.on("user-joined", async (data: any) => {
+          console.log(`[WebRTC Signaling] Remote user joined: ${data.userRole}. Initiating offer...`);
+          try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit("offer", { meetingId: interview.meetingId, offer });
+          } catch (err) {
+            console.error("[WebRTC] Failed to create offer:", err);
+          }
+        });
+
+        socket.on("offer", async (data: any) => {
+          console.log("[WebRTC Signaling] Received offer. Creating response answer...");
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit("answer", { meetingId: interview.meetingId, answer });
+          } catch (err) {
+            console.error("[WebRTC] Failed to handle offer:", err);
+          }
+        });
+
+        socket.on("answer", async (data: any) => {
+          console.log("[WebRTC Signaling] Received answer. Resolving remote description...");
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          } catch (err) {
+            console.error("[WebRTC] Failed to handle answer:", err);
+          }
+        });
+
+        socket.on("ice-candidate", async (data: any) => {
+          console.log("[WebRTC Signaling] Received remote ICE candidate. Attaching...");
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          } catch (err) {
+            console.error("[WebRTC] Failed to add ICE candidate:", err);
+          }
+        });
+
+        socket.on("user-left", () => {
+          console.log("[WebRTC] Remote user left call.");
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = null;
+          }
+          setRemoteStreamActive(false);
+        });
+
+        socket.on("chat-message", (data: any) => {
+          setMessages(prev => [...prev, data.message]);
+        });
+
+        // Join room trigger
+        socket.emit("join-meeting", {
+          meetingId: interview.meetingId,
+          userRole,
+          userId: userRole === 'hr' ? interview.hrId : interview.studentId
+        });
+
+      } catch (err) {
+        console.error("[WebRTC] Failed to initialize call:", err);
+      }
+    };
+
+    setupRTC();
+
+    return () => {
+      active = false;
+      console.log("[WebRTC] Closing meeting room...");
+      
+      socket.emit("leave-meeting", { meetingId: interview.meetingId });
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
+
+      socket.off("user-joined");
+      socket.off("offer");
+      socket.off("answer");
+      socket.off("ice-candidate");
+      socket.off("user-left");
+      socket.off("chat-message");
+    };
+  }, [interview.meetingId]);
+
+  // Synchronize audio/video active states to the local media stream tracks
+  useEffect(() => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getVideoTracks().forEach(track => {
+        track.enabled = cameraActive;
+      });
+    }
+  }, [cameraActive]);
+
+  useEffect(() => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach(track => {
+        track.enabled = micActive;
+      });
+    }
+  }, [micActive]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -63,6 +244,8 @@ export default function LiveMeeting({ interview, userRole, onLeave, onSubmitEval
       text: inputText,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
+
+    socket.emit("chat-message", { meetingId: interview.meetingId, message: newMsg });
 
     setMessages(prev => [...prev, newMsg]);
     setInputText('');
@@ -108,15 +291,29 @@ export default function LiveMeeting({ interview, userRole, onLeave, onSubmitEval
           }}
         >
           {/* Main stream window: Remote Stream */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', position: 'relative' }}>
-            <div style={{ width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(255,255,255,0.03)', border: '2px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <User size={44} style={{ color: 'var(--text-muted)' }} />
+          <video 
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            style={{ 
+              width: '100%', 
+              height: '100%', 
+              objectFit: 'cover',
+              display: remoteStreamActive ? 'block' : 'none'
+            }}
+          />
+
+          {!remoteStreamActive && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', position: 'relative' }}>
+              <div style={{ width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(255,255,255,0.03)', border: '2px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <User size={44} style={{ color: 'var(--text-muted)' }} />
+              </div>
+              <span style={{ fontSize: '1rem', color: 'var(--text-main)', fontWeight: 'bold' }}>
+                {userRole === 'hr' ? `${interview.studentName} (Candidate)` : `${interview.hrName} (Recruiter)`}
+              </span>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Waiting for remote user to join...</span>
             </div>
-            <span style={{ fontSize: '1rem', color: 'var(--text-main)', fontWeight: 'bold' }}>
-              {userRole === 'hr' ? `${interview.studentName} (Candidate)` : `${interview.hrName} (Recruiter)`}
-            </span>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Remote Video Feed Active</span>
-          </div>
+          )}
 
           {/* Sub thumbnail stream: Local Stream */}
           <div 
@@ -136,12 +333,19 @@ export default function LiveMeeting({ interview, userRole, onLeave, onSubmitEval
               boxShadow: '0 4px 10px rgba(0,0,0,0.5)'
             }}
           >
-            {cameraActive ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                <User size={20} style={{ color: 'var(--primary)' }} />
-                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>You (Preview)</span>
-              </div>
-            ) : (
+            <video 
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{ 
+                width: '100%', 
+                height: '100%', 
+                objectFit: 'cover',
+                display: cameraActive ? 'block' : 'none'
+              }}
+            />
+            {!cameraActive && (
               <CameraOff size={16} style={{ color: 'var(--danger)' }} />
             )}
           </div>
@@ -149,8 +353,8 @@ export default function LiveMeeting({ interview, userRole, onLeave, onSubmitEval
           {/* Call Metadata (Header Indicators) */}
           <div style={{ position: 'absolute', top: '20px', left: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
             <div style={{ fontSize: '0.8rem', background: 'rgba(0,0,0,0.6)', padding: '6px 12px', borderRadius: '8px', color: '#fff', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)', display: 'inline-block' }}></span>
-              Connected
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: remoteStreamActive ? 'var(--success)' : 'var(--warning)', display: 'inline-block' }}></span>
+              {remoteStreamActive ? 'Connected' : 'Waiting'}
             </div>
             <div style={{ fontSize: '0.8rem', background: 'rgba(0,0,0,0.6)', padding: '6px 12px', borderRadius: '8px', color: '#fff', border: '1px solid var(--border-color)', fontWeight: 'bold' }}>
               {formatTime(timerSeconds)}

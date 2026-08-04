@@ -1527,8 +1527,49 @@ io.on("connection", (socket) => {
     io.to(driveId).emit("candidate-update", { username, roundId, score, status });
   });
 
+  // WebRTC Live HR Interview Signaling (Phase 6 & 7)
+  socket.on("join-meeting", ({ meetingId, userRole, userId }) => {
+    socket.join(meetingId);
+    socket.meetingId = meetingId;
+    socket.userRole = userRole;
+    socket.userId = userId;
+    console.log(`User ${userId} (${userRole}) joined meeting room: ${meetingId}`);
+    
+    // Notify others in the room
+    socket.to(meetingId).emit("user-joined", { userId, userRole });
+  });
+
+  socket.on("offer", ({ meetingId, offer }) => {
+    console.log(`Forwarding WebRTC offer for room: ${meetingId}`);
+    socket.to(meetingId).emit("offer", { offer });
+  });
+
+  socket.on("answer", ({ meetingId, answer }) => {
+    console.log(`Forwarding WebRTC answer for room: ${meetingId}`);
+    socket.to(meetingId).emit("answer", { answer });
+  });
+
+  socket.on("ice-candidate", ({ meetingId, candidate }) => {
+    console.log(`Forwarding WebRTC ICE candidate for room: ${meetingId}`);
+    socket.to(meetingId).emit("ice-candidate", { candidate });
+  });
+
+  socket.on("leave-meeting", ({ meetingId }) => {
+    console.log(`User left meeting room: ${meetingId}`);
+    socket.to(meetingId).emit("user-left");
+    socket.leave(meetingId);
+  });
+
+  socket.on("chat-message", ({ meetingId, message }) => {
+    console.log(`Forwarding chat message for room: ${meetingId}`);
+    socket.to(meetingId).emit("chat-message", { message });
+  });
+
   socket.on("disconnect", () => {
     console.log(`Socket client disconnected: ${socket.id}`);
+    if (socket.meetingId) {
+      socket.to(socket.meetingId).emit("user-left");
+    }
   });
 });
 
