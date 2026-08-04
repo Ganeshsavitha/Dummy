@@ -344,6 +344,11 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           setMessages(prev => [...prev, data.message]);
         });
 
+        socket.on("join-error", (data: any) => {
+          console.error("[WebRTC Socket] Join meeting error:", data.message);
+          alert(`Failed to connect to the live video session: ${data.message}`);
+        });
+
         // Join room trigger
         socket.emit("join-meeting", {
           meetingId: interview.meetingId,
