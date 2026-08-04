@@ -758,6 +758,7 @@ app.post("/api/placement/auth/login", async (req, res) => {
       success: true,
       token,
       company: {
+        id: user.id,
         username: user.email.split("@")[0],
         companyName: user.company_name || user.full_name,
         email: user.email,
@@ -814,6 +815,7 @@ app.post("/api/placement/auth/student-login", async (req, res) => {
       success: true,
       token,
       student: {
+        id: user.id,
         username,
         fullName: user.full_name,
         email: user.email,
@@ -843,6 +845,7 @@ app.get("/api/placement/auth/me", authenticateJWT, async (req, res) => {
       res.json({
         success: true,
         user: {
+          id: user.id,
           username,
           fullName: user.full_name,
           email: user.email,
@@ -857,6 +860,7 @@ app.get("/api/placement/auth/me", authenticateJWT, async (req, res) => {
       res.json({
         success: true,
         user: {
+          id: user.id,
           username: user.email.split("@")[0],
           fullName: user.full_name,
           email: user.email,
@@ -1284,6 +1288,11 @@ app.post("/api/placement/interviews/schedule", authenticateJWT, async (req, res)
 
   try {
     const interview = await db.createInterview(meetingId, req.user.id, studentId, date, time, duration, type);
+    
+    // Notify only the selected student via Socket.io
+    io.to(`student_${studentId}`).emit("new-interview-scheduled", interview);
+    console.log(`[Notification] Emitted new-interview-scheduled to student notification room: student_${studentId}`);
+    
     res.json({ success: true, interview });
   } catch (err) {
     console.error("Error scheduling interview:", err);
@@ -1315,6 +1324,52 @@ app.get("/api/placement/interviews/hr", authenticateJWT, async (req, res) => {
     const list = await db.getInterviewsForHR(req.user.id);
     res.json({ success: true, interviews: list });
   } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Verify and join an interview (access check)
+app.get("/api/placement/interviews/:meetingId/verify", authenticateJWT, async (req, res) => {
+  const { meetingId } = req.params;
+  try {
+    console.log(`[Join Auth Check] User ${req.user.id} (${req.user.role}) requesting to join meeting ${meetingId}`);
+    
+    const interview = await db.getInterviewByMeetingId(meetingId);
+    if (!interview) {
+      console.warn(`[Join Auth Check] Rejecting join request: Meeting ID ${meetingId} not found`);
+      return res.status(404).json({ success: false, message: "Meeting not found." });
+    }
+    
+    console.log(`[Join Auth Check] Found Interview metadata: 
+      - Meeting ID: ${interview.meetingId}
+      - Assigned Candidate ID: ${interview.studentId}
+      - Assigned HR ID: ${interview.hrId}
+      - Candidate Name: ${interview.studentName}`);
+      
+    const isHr = req.user.role === 'hr' || req.user.role === 'admin';
+    const isStudent = req.user.role === 'student';
+    
+    if (isHr) {
+      // Validate that this HR is the one assigned to the meeting
+      if (interview.hrId !== req.user.id && req.user.role !== 'admin') {
+        console.warn(`[Join Auth Check] Rejecting HR ${req.user.id}: Not assigned to meeting. Assigned HR: ${interview.hrId}`);
+        return res.status(403).json({ success: false, message: "You are not the assigned interviewer for this meeting." });
+      }
+    } else if (isStudent) {
+      // Validate that this Student is the one assigned to the meeting
+      if (interview.studentId !== req.user.id) {
+        console.warn(`[Join Auth Check] Rejecting Student ${req.user.id}: Not assigned to meeting. Assigned Student: ${interview.studentId}`);
+        return res.status(403).json({ success: false, message: "You're not assigned to this interview." });
+      }
+    } else {
+      console.warn(`[Join Auth Check] Rejecting User ${req.user.id}: Invalid role ${req.user.role}`);
+      return res.status(403).json({ success: false, message: "Unauthorized role." });
+    }
+    
+    console.log(`[Join Auth Check] Authorized user ${req.user.id} to join meeting ${meetingId}`);
+    res.json({ success: true, interview });
+  } catch (err) {
+    console.error("Error verifying interview join:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -1527,42 +1582,97 @@ io.on("connection", (socket) => {
     io.to(driveId).emit("candidate-update", { username, roundId, score, status });
   });
 
+  // Real-Time Student Notification Room Join
+  socket.on("join-student-room", ({ studentId }) => {
+    socket.join(`student_${studentId}`);
+    console.log(`Student ${studentId} joined personal notification room`);
+  });
+
   // WebRTC Live HR Interview Signaling (Phase 6 & 7)
-  socket.on("join-meeting", ({ meetingId, userRole, userId }) => {
-    socket.join(meetingId);
-    socket.meetingId = meetingId;
-    socket.userRole = userRole;
-    socket.userId = userId;
-    console.log(`User ${userId} (${userRole}) joined meeting room: ${meetingId}`);
+  socket.on("join-meeting", async ({ meetingId, userRole, userId }) => {
+    const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
     
-    // Notify others in the room
-    socket.to(meetingId).emit("user-joined", { userId, userRole });
+    try {
+      console.log(`[Socket Auth Check] User ${userId} (${userRole}) requesting to join socket room: ${formattedRoom}`);
+      
+      const interview = await db.getInterviewByMeetingId(meetingId);
+      if (!interview) {
+        console.warn(`[Socket Auth Check] Rejecting join request: Meeting ID ${meetingId} not found in database`);
+        socket.emit("join-error", { message: "Meeting not found." });
+        return;
+      }
+      
+      console.log(`[Socket Auth Check] Found Interview metadata:
+        - Socket Room: ${formattedRoom}
+        - Current Logged-in User: ${userId}
+        - Assigned Student: ${interview.studentId}
+        - Selected Candidate: ${interview.studentName}
+        - Assigned HR: ${interview.hrId}`);
+      
+      const isHr = userRole === 'hr';
+      const isStudent = userRole === 'student';
+      
+      if (isHr) {
+        if (interview.hrId !== userId) {
+          console.warn(`[Socket Auth Check] Rejecting HR ${userId}: Not assigned to meeting. Assigned HR: ${interview.hrId}`);
+          socket.emit("join-error", { message: "You are not the assigned interviewer." });
+          return;
+        }
+      } else if (isStudent) {
+        if (interview.studentId !== userId) {
+          console.warn(`[Socket Auth Check] Rejecting Student ${userId}: Not assigned to meeting. Assigned Student: ${interview.studentId}`);
+          socket.emit("join-error", { message: "You're not assigned to this interview." });
+          return;
+        }
+      } else {
+        console.warn(`[Socket Auth Check] Rejecting User ${userId} due to invalid role: ${userRole}`);
+        socket.emit("join-error", { message: "Unauthorized role." });
+        return;
+      }
+      
+      socket.join(formattedRoom);
+      socket.meetingId = formattedRoom;
+      socket.userRole = userRole;
+      socket.userId = userId;
+      console.log(`[Socket Success] User ${userId} (${userRole}) joined meeting room: ${formattedRoom}`);
+      
+      // Notify others in the room
+      socket.to(formattedRoom).emit("user-joined", { userId, userRole });
+    } catch (e) {
+      console.error("[Socket Join Error]", e);
+      socket.emit("join-error", { message: "Internal server error." });
+    }
   });
 
   socket.on("offer", ({ meetingId, offer }) => {
-    console.log(`Forwarding WebRTC offer for room: ${meetingId}`);
-    socket.to(meetingId).emit("offer", { offer });
+    const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    console.log(`Forwarding WebRTC offer for room: ${formattedRoom}`);
+    socket.to(formattedRoom).emit("offer", { offer });
   });
 
   socket.on("answer", ({ meetingId, answer }) => {
-    console.log(`Forwarding WebRTC answer for room: ${meetingId}`);
-    socket.to(meetingId).emit("answer", { answer });
+    const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    console.log(`Forwarding WebRTC answer for room: ${formattedRoom}`);
+    socket.to(formattedRoom).emit("answer", { answer });
   });
 
   socket.on("ice-candidate", ({ meetingId, candidate }) => {
-    console.log(`Forwarding WebRTC ICE candidate for room: ${meetingId}`);
-    socket.to(meetingId).emit("ice-candidate", { candidate });
+    const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    console.log(`Forwarding WebRTC ICE candidate for room: ${formattedRoom}`);
+    socket.to(formattedRoom).emit("ice-candidate", { candidate });
   });
 
   socket.on("leave-meeting", ({ meetingId }) => {
-    console.log(`User left meeting room: ${meetingId}`);
-    socket.to(meetingId).emit("user-left");
-    socket.leave(meetingId);
+    const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    console.log(`User left meeting room: ${formattedRoom}`);
+    socket.to(formattedRoom).emit("user-left");
+    socket.leave(formattedRoom);
   });
 
   socket.on("chat-message", ({ meetingId, message }) => {
-    console.log(`Forwarding chat message for room: ${meetingId}`);
-    socket.to(meetingId).emit("chat-message", { message });
+    const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    console.log(`Forwarding chat message for room: ${formattedRoom}`);
+    socket.to(formattedRoom).emit("chat-message", { message });
   });
 
   socket.on("disconnect", () => {

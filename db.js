@@ -217,6 +217,8 @@ async function initDb() {
       duration INTEGER NOT NULL,
       type TEXT NOT NULL,
       status TEXT CHECK(status IN ('scheduled', 'waiting', 'ongoing', 'completed', 'cancelled')) DEFAULT 'scheduled',
+      meeting_status TEXT CHECK(meeting_status IN ('scheduled', 'waiting', 'ongoing', 'completed', 'cancelled')) DEFAULT 'scheduled',
+      join_token TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (hr_id) REFERENCES users(id),
       FOREIGN KEY (student_id) REFERENCES users(id)
@@ -262,6 +264,20 @@ async function initDb() {
       FOREIGN KEY (interview_id) REFERENCES interviews(id)
     )
   `);
+
+  // Migrations for interviews table columns
+  try {
+    await dbRun("ALTER TABLE interviews ADD COLUMN meeting_status TEXT DEFAULT 'scheduled'");
+    console.log("Migration: Added meeting_status column to interviews table successfully.");
+  } catch (err) {
+    // Column already exists or table doesn't exist yet
+  }
+  try {
+    await dbRun("ALTER TABLE interviews ADD COLUMN join_token TEXT");
+    console.log("Migration: Added join_token column to interviews table successfully.");
+  } catch (err) {
+    // Column already exists or table doesn't exist yet
+  }
 
   // Seed default users if users table is empty
   const usersCount = await dbGet("SELECT COUNT(*) as count FROM users");
@@ -967,12 +983,12 @@ async function savePlacementQuestions(driveId, roundId, questions) {
 }
 
 // Live HR Interview Operations
-async function createInterview(meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type) {
+async function createInterview(meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type, joinToken = null) {
   const id = generateUUID();
   await dbRun(
-    `INSERT INTO interviews (id, meeting_id, hr_id, student_id, scheduled_date, scheduled_time, duration, type, status) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')`,
-    [id, meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type]
+    `INSERT INTO interviews (id, meeting_id, hr_id, student_id, scheduled_date, scheduled_time, duration, type, status, meeting_status, join_token) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 'scheduled', ?)`,
+    [id, meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type, joinToken]
   );
   return await getInterviewById(id);
 }
@@ -986,9 +1002,13 @@ function formatInterview(row) {
     studentId: row.student_id,
     date: row.scheduled_date,
     time: row.scheduled_time,
+    scheduled_time: row.scheduled_time,
     duration: row.duration,
     type: row.type,
     status: row.status,
+    meeting_status: row.meeting_status || row.status,
+    meetingStatus: row.meeting_status || row.status,
+    join_token: row.join_token || null,
     hrName: row.hr_name || "HR Recruiter",
     studentName: row.student_name || "Candidate",
     studentEmail: row.student_email || "",
@@ -1049,7 +1069,7 @@ async function getInterviewsForHR(hrId) {
 }
 
 async function updateInterviewStatus(id, status) {
-  await dbRun("UPDATE interviews SET status = ? WHERE id = ?", [status, id]);
+  await dbRun("UPDATE interviews SET status = ?, meeting_status = ? WHERE id = ?", [status, status, id]);
   return await getInterviewById(id);
 }
 

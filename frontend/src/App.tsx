@@ -98,7 +98,7 @@ export default function App() {
   // ==========================================
   // LIVE HR INTERVIEW STATE
   // ==========================================
-  const [liveInterviews, setLiveInterviews] = useState<Interview[]>(initialMockInterviews);
+  const [liveInterviews, setLiveInterviews] = useState<Interview[]>([]);
   const [activeInterview, setActiveInterview] = useState<Interview | null>(null);
 
   const fetchInterviews = async () => {
@@ -112,9 +112,45 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setLiveInterviews(data.interviews);
+        
+        // Dynamically add notifications only for this student's scheduled interviews
+        if (user.role === 'student') {
+          const scheduledInterviews = data.interviews.filter((i: any) => i.status === 'scheduled' || i.status === 'waiting');
+          const interviewNotifications = scheduledInterviews.map((i: any) => ({
+            id: `n_interview_${i.id}`,
+            title: 'Upcoming HR Interview',
+            message: `You have an upcoming ${i.type} Round interview scheduled for ${i.date} at ${i.time}. Meeting Code: ${i.meetingId}`,
+            time: 'Scheduled',
+            unread: true
+          }));
+          
+          setStudentNotifications(prev => {
+            const nonInterviewNotifs = prev.filter(n => !n.id.startsWith('n_interview_'));
+            return [...interviewNotifications, ...nonInterviewNotifs];
+          });
+        }
       }
     } catch (err) {
       console.error('Failed to fetch interviews:', err);
+    }
+  };
+
+  const joinInterviewLobby = async (interview: any) => {
+    try {
+      const token = localStorage.getItem('hiregrad_token');
+      const res = await fetch(`${API_BASE}/api/placement/interviews/${interview.meetingId}/verify`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActiveInterview(data.interview);
+        setView('shared-waiting-room');
+      } else {
+        alert(data.message || "Failed to join meeting.");
+      }
+    } catch (err) {
+      console.error("Failed to verify meeting:", err);
+      alert("An error occurred while verifying the meeting.");
     }
   };
 
@@ -540,10 +576,35 @@ export default function App() {
       ]);
     });
 
+    socket.on('new-interview-scheduled', (interview: any) => {
+      triggerToast(`📢 You have a new live interview scheduled: ${interview.type} Round!`);
+      setLiveInterviews(prev => {
+        const filtered = prev.filter(i => i.id !== interview.id);
+        return [interview, ...filtered];
+      });
+      setStudentNotifications(prev => [
+        {
+          id: `n_interview_${interview.id}`,
+          title: 'Upcoming HR Interview',
+          message: `You have an upcoming ${interview.type} Round interview scheduled for ${interview.date} at ${interview.time}. Meeting Code: ${interview.meetingId}`,
+          time: 'Just now',
+          unread: true
+        },
+        ...prev
+      ]);
+    });
+
     return () => {
       socket.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (socket && user?.role === 'student' && user.id) {
+      socket.emit("join-student-room", { studentId: user.id });
+      console.log(`[Socket] Joined student room: student_${user.id}`);
+    }
+  }, [user]);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -2496,8 +2557,7 @@ export default function App() {
               <StudentInterviewSchedule 
                 interviews={liveInterviews}
                 onJoinLobby={(interview) => {
-                  setActiveInterview(interview);
-                  setView('shared-waiting-room');
+                  joinInterviewLobby(interview);
                 }}
               />
             )}
@@ -2561,8 +2621,7 @@ export default function App() {
                 interviews={liveInterviews}
                 onScheduleClick={() => setView('hr-schedule-interview')}
                 onJoinCall={(interview) => {
-                  setActiveInterview(interview);
-                  setView('shared-waiting-room');
+                  joinInterviewLobby(interview);
                 }}
                 onViewHistory={() => setView('hr-interview-history')}
               />
