@@ -239,6 +239,21 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           console.log(`[WebRTC State] signalingState: ${pc.signalingState}`);
         };
 
+        const iceCandidateQueue: any[] = [];
+        const processQueuedIceCandidates = async () => {
+          while (iceCandidateQueue.length > 0) {
+            const candidateData = iceCandidateQueue.shift();
+            if (candidateData) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(candidateData));
+                console.log("[WebRTC] Applied queued ICE candidate successfully");
+              } catch (e) {
+                console.error("[WebRTC] Failed to apply queued ICE candidate:", e);
+              }
+            }
+          }
+        };
+
         // ICE candidate callback
         pc.onicecandidate = (event) => {
           if (event.candidate) {
@@ -249,11 +264,20 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
 
         // Incoming track listener
         pc.ontrack = (event) => {
-          console.log("[WebRTC] Received remote stream track event:", event);
-          const remoteStream = event.streams[0];
-          if (remoteVideoRef.current && remoteStream) {
-            remoteVideoRef.current.srcObject = remoteStream;
+          console.log("[WebRTC] Received remote stream track event:", event.track.kind);
+          if (remoteVideoRef.current) {
+            let remoteStream = remoteVideoRef.current.srcObject as MediaStream;
+            if (!remoteStream || !(remoteStream instanceof MediaStream)) {
+              remoteStream = new MediaStream();
+              remoteVideoRef.current.srcObject = remoteStream;
+            }
+            remoteStream.addTrack(event.track);
             setRemoteStreamActive(true);
+            
+            // Trigger play explicitly to bypass mobile browser restrictions
+            remoteVideoRef.current.play().catch(err => {
+              console.warn("[WebRTC] Play failed (browser autoplay restrictions):", err);
+            });
           }
         };
 
@@ -273,6 +297,7 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           console.log("[WebRTC Signaling] Received offer. Creating response answer...");
           try {
             await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            await processQueuedIceCandidates();
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             socket.emit("answer", { meetingId: interview.meetingId, answer });
@@ -285,15 +310,23 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           console.log("[WebRTC Signaling] Received answer. Resolving remote description...");
           try {
             await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            await processQueuedIceCandidates();
           } catch (err) {
             console.error("[WebRTC] Failed to handle answer:", err);
           }
         });
 
         socket.on("ice-candidate", async (data: any) => {
-          console.log("[WebRTC Signaling] Received remote ICE candidate. Attaching...");
+          console.log("[WebRTC Signaling] Received remote ICE candidate.");
           try {
-            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            if (data.candidate) {
+              if (pc.remoteDescription) {
+                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+              } else {
+                console.log("[WebRTC] Remote description not set yet. Queueing ICE candidate.");
+                iceCandidateQueue.push(data.candidate);
+              }
+            }
           } catch (err) {
             console.error("[WebRTC] Failed to add ICE candidate:", err);
           }
@@ -438,12 +471,15 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
               width: '100%', 
               height: '100%', 
               objectFit: 'cover',
-              display: remoteStreamActive ? 'block' : 'none'
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              zIndex: 1
             }}
           />
 
           {!remoteStreamActive && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', position: 'relative' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', position: 'absolute', zIndex: 2 }}>
               <div style={{ width: '90px', height: '90px', borderRadius: '50%', background: 'rgba(255,255,255,0.03)', border: '2px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                 <User size={44} style={{ color: 'var(--text-muted)' }} />
               </div>
