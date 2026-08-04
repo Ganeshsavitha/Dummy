@@ -41,6 +41,7 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const remoteStreamInstanceRef = useRef<MediaStream | null>(null);
 
   // Scroll to bottom of chat
   useEffect(() => {
@@ -54,6 +55,17 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Re-attachment hook: prevents React virtual DOM updates from dropping srcObject
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStreamInstanceRef.current) {
+      if (remoteVideoRef.current.srcObject !== remoteStreamInstanceRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamInstanceRef.current;
+        console.log("[WebRTC] Re-attached remote stream to video element on render");
+        remoteVideoRef.current.play().catch((err: any) => console.warn("[WebRTC] Play failed on render:", err));
+      }
+    }
+  });
 
   // Helper to generate a simulated camera/microphone stream when hardware is blocked
   const createSimulatedStream = () => {
@@ -213,12 +225,21 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           localVideoRef.current.srcObject = stream;
         }
 
-        // Initialize Peer Connection with Public Google STUN servers
+        // Initialize Peer Connection with Public Google STUN servers and Open Relay TURN servers
         console.log("[WebRTC] Creating RTCPeerConnection...");
         const pc = new RTCPeerConnection({
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
+            { urls: 'stun:stun1.l.google.com:19302' },
+            {
+              urls: [
+                'turn:openrelay.metered.ca:80',
+                'turn:openrelay.metered.ca:443',
+                'turn:openrelay.metered.ca:443?transport=tcp'
+              ],
+              username: 'openrelayproject',
+              credential: 'openrelayproject'
+            }
           ]
         });
         peerConnectionRef.current = pc;
@@ -265,17 +286,15 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
         // Incoming track listener
         pc.ontrack = (event) => {
           console.log("[WebRTC] Received remote stream track event:", event.track.kind);
+          if (!remoteStreamInstanceRef.current) {
+            remoteStreamInstanceRef.current = new MediaStream();
+          }
+          remoteStreamInstanceRef.current.addTrack(event.track);
+          setRemoteStreamActive(true);
+          
           if (remoteVideoRef.current) {
-            let remoteStream = remoteVideoRef.current.srcObject as MediaStream;
-            if (!remoteStream || !(remoteStream instanceof MediaStream)) {
-              remoteStream = new MediaStream();
-              remoteVideoRef.current.srcObject = remoteStream;
-            }
-            remoteStream.addTrack(event.track);
-            setRemoteStreamActive(true);
-            
-            // Trigger play explicitly to bypass mobile browser restrictions
-            remoteVideoRef.current.play().catch(err => {
+            remoteVideoRef.current.srcObject = remoteStreamInstanceRef.current;
+            remoteVideoRef.current.play().catch((err: any) => {
               console.warn("[WebRTC] Play failed (browser autoplay restrictions):", err);
             });
           }
@@ -334,6 +353,7 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
 
         socket.on("user-left", () => {
           console.log("[WebRTC] Remote user left call.");
+          remoteStreamInstanceRef.current = null;
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = null;
           }
