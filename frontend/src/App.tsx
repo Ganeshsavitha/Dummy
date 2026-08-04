@@ -144,7 +144,12 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setActiveInterview(data.interview);
-        setView('shared-waiting-room');
+        // Direct-route to live interview if meeting is already active / ongoing
+        if (data.interview.status === 'ongoing') {
+          setView('shared-live-interview');
+        } else {
+          setView('shared-waiting-room');
+        }
       } else {
         alert(data.message || "Failed to join meeting.");
       }
@@ -592,6 +597,29 @@ export default function App() {
         },
         ...prev
       ]);
+    });
+
+    socket.on('interview-status-changed', (data: any) => {
+      console.log("[Socket] Received interview-status-changed event:", data);
+      
+      setLiveInterviews(prev => 
+        prev.map(i => i.id === data.interviewId ? { ...i, status: data.status, meeting_status: data.status, meetingStatus: data.status } : i)
+      );
+
+      setActiveInterview(prev => {
+        if (prev && prev.id === data.interviewId) {
+          const updated = { ...prev, status: data.status, meeting_status: data.status, meetingStatus: data.status };
+          
+          // Auto-admit candidate: transition student from lobby to live call when admitted
+          if (data.status === 'ongoing') {
+            triggerToast("🎉 You have been admitted to the interview! Connecting call...");
+            setView('shared-live-interview');
+          }
+          
+          return updated;
+        }
+        return prev;
+      });
     });
 
     return () => {

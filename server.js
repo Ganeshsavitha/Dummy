@@ -1385,8 +1385,18 @@ app.post("/api/placement/interviews/:id/status", authenticateJWT, async (req, re
 
   try {
     const interview = await db.updateInterviewStatus(id, status);
+    
+    // Broadcast status change to the student and to the meeting room
+    io.to(`student_${interview.studentId}`).emit("interview-status-changed", { interviewId: id, status, interview });
+    
+    const formattedRoom = interview.meetingId.startsWith("meeting_") ? interview.meetingId : `meeting_${interview.meetingId}`;
+    io.to(formattedRoom).emit("interview-status-changed", { interviewId: id, status, interview });
+    
+    console.log(`[Socket Broadcast] Emitted interview-status-changed to student_${interview.studentId} and ${formattedRoom} with status ${status}`);
+    
     res.json({ success: true, interview });
   } catch (err) {
+    console.error("Error updating interview status:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
