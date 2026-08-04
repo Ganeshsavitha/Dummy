@@ -55,6 +55,139 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
     return () => clearInterval(timer);
   }, []);
 
+  // Helper to generate a simulated camera/microphone stream when hardware is blocked
+  const createSimulatedStream = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    
+    let angle = 0;
+    const drawSimulatedFrame = () => {
+      if (!ctx) return;
+      
+      const grad = ctx.createLinearGradient(0, 0, 640, 480);
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(1, '#1e1b4b');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 640, 480);
+      
+      ctx.strokeStyle = 'rgba(99, 102, 241, 0.2)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      const y = (Date.now() / 20) % 480;
+      ctx.moveTo(0, y);
+      ctx.lineTo(640, y);
+      ctx.stroke();
+
+      ctx.fillStyle = '#6366f1';
+      ctx.beginPath();
+      ctx.arc(320, 200, 60, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.ellipse(320, 320, 100, 60, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      const isBlinking = Math.floor(Date.now() / 1500) % 2 === 0 && Math.floor(Date.now() / 100) % 3 === 0;
+      if (!isBlinking) {
+        ctx.beginPath();
+        ctx.arc(300, 195, 6, 0, Math.PI * 2);
+        ctx.arc(340, 195, 6, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(294, 195);
+        ctx.lineTo(306, 195);
+        ctx.moveTo(334, 195);
+        ctx.lineTo(346, 195);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(320, 215, 12, 0.1 * Math.PI, 0.9 * Math.PI);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      const waveRadius = 70 + Math.sin(angle) * 10;
+      ctx.arc(320, 200, waveRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#10b981';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Simulated Webcam Feed', 320, 400);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('(Hardware Blocked / Permission Fallback)', 320, 420);
+      
+      angle += 0.2;
+    };
+
+    const intervalId = setInterval(drawSimulatedFrame, 50);
+
+    const canvasStream = (canvas as any).captureStream ? (canvas as any).captureStream(30) : (canvas as any).webkitCaptureStream(30);
+    const videoTrack = canvasStream.getVideoTracks()[0];
+
+    const originalStop = videoTrack.stop.bind(videoTrack);
+    videoTrack.stop = () => {
+      clearInterval(intervalId);
+      originalStop();
+    };
+
+    let audioTrack: MediaStreamTrack | null = null;
+    let audioIntervalId: any = null;
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        const audioCtx = new AudioContextClass();
+        const dest = audioCtx.createMediaStreamDestination();
+        
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.value = 150;
+        gain.gain.value = 0.001;
+        
+        osc.connect(gain);
+        gain.connect(dest);
+        osc.start();
+        
+        audioTrack = dest.stream.getAudioTracks()[0];
+        
+        audioIntervalId = setInterval(() => {
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+          gain.gain.setValueAtTime((Math.random() * 0.006 + 0.001), audioCtx.currentTime);
+        }, 200);
+
+        const origAudioStop = audioTrack.stop.bind(audioTrack);
+        audioTrack.stop = () => {
+          clearInterval(audioIntervalId);
+          osc.stop();
+          audioCtx.close();
+          origAudioStop();
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to create simulated audio:', e);
+    }
+
+    const tracks = [];
+    if (videoTrack) tracks.push(videoTrack);
+    if (audioTrack) tracks.push(audioTrack);
+
+    return new MediaStream(tracks);
+  };
+
   // WebRTC Peer Connection & Signaling Setup
   useEffect(() => {
     let active = true;
@@ -62,7 +195,13 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
     const setupRTC = async () => {
       try {
         console.log("[WebRTC] Requesting local camera and microphone permissions...");
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        let stream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        } catch (err) {
+          console.warn("[WebRTC] getUserMedia failed. Falling back to simulated stream. Error:", err);
+          stream = createSimulatedStream();
+        }
         
         if (!active) {
           stream.getTracks().forEach(track => track.stop());

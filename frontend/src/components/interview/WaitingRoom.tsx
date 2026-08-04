@@ -22,6 +22,7 @@ export default function WaitingRoom({ interview, userRole, onBack, onEnterCall }
   const [selectedCamId, setSelectedCamId] = useState<string>('');
   const [selectedMicId, setSelectedMicId] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [usingSimulatedMedia, setUsingSimulatedMedia] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -148,10 +149,155 @@ export default function WaitingRoom({ interview, userRole, onBack, onEnterCall }
     }
   };
 
+  // Generates simulated camera and microphone tracks when hardware is blocked or missing
+  const createSimulatedStream = () => {
+    // 1. Create a simulated video track using Canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    
+    let angle = 0;
+    const drawSimulatedFrame = () => {
+      if (!ctx) return;
+      
+      // Draw premium gradient background
+      const grad = ctx.createLinearGradient(0, 0, 640, 480);
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(1, '#1e1b4b');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 640, 480);
+      
+      // Draw simulated camera scan line
+      ctx.strokeStyle = 'rgba(99, 102, 241, 0.2)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      const y = (Date.now() / 20) % 480;
+      ctx.moveTo(0, y);
+      ctx.lineTo(640, y);
+      ctx.stroke();
+
+      // Draw simulated candidate avatar (head & shoulders)
+      ctx.fillStyle = '#6366f1';
+      ctx.beginPath();
+      ctx.arc(320, 200, 60, 0, Math.PI * 2); // Head
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.ellipse(320, 320, 100, 60, 0, 0, Math.PI * 2); // Shoulders
+      ctx.fill();
+
+      // Draw simulated facial features (eyes, blinking animation)
+      ctx.fillStyle = '#ffffff';
+      const isBlinking = Math.floor(Date.now() / 1500) % 2 === 0 && Math.floor(Date.now() / 100) % 3 === 0;
+      if (!isBlinking) {
+        ctx.beginPath();
+        ctx.arc(300, 195, 6, 0, Math.PI * 2); // Left eye
+        ctx.arc(340, 195, 6, 0, Math.PI * 2); // Right eye
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(294, 195);
+        ctx.lineTo(306, 195); // Left eye blink line
+        ctx.moveTo(334, 195);
+        ctx.lineTo(346, 195); // Right eye blink line
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(320, 215, 12, 0.1 * Math.PI, 0.9 * Math.PI); // Smile
+      ctx.stroke();
+
+      // Draw pulsing voice active indicator wave
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      const waveRadius = 70 + Math.sin(angle) * 10;
+      ctx.arc(320, 200, waveRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Simulated badge
+      ctx.fillStyle = '#10b981';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Simulated Webcam Feed', 320, 400);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '12px sans-serif';
+      ctx.fillText('(Hardware Blocked / Permission Fallback)', 320, 420);
+      
+      angle += 0.2;
+    };
+
+    const intervalId = setInterval(drawSimulatedFrame, 50);
+
+    const canvasStream = (canvas as any).captureStream ? (canvas as any).captureStream(30) : (canvas as any).webkitCaptureStream(30);
+    const videoTrack = canvasStream.getVideoTracks()[0];
+
+    // Override stop to clean up canvas interval
+    const originalStop = videoTrack.stop.bind(videoTrack);
+    videoTrack.stop = () => {
+      clearInterval(intervalId);
+      originalStop();
+    };
+
+    // 2. Create simulated audio track using Web Audio API
+    let audioTrack: MediaStreamTrack | null = null;
+    let audioIntervalId: any = null;
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        const audioCtx = new AudioContextClass();
+        const dest = audioCtx.createMediaStreamDestination();
+        
+        // Generate minor white-noise / hum to trigger volume bars
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.value = 150;
+        gain.gain.value = 0.001; // nearly silent speech hum
+        
+        osc.connect(gain);
+        gain.connect(dest);
+        osc.start();
+        
+        audioTrack = dest.stream.getAudioTracks()[0];
+        
+        // Periodically modulate gain to simulate mic level fluctuation
+        audioIntervalId = setInterval(() => {
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+          gain.gain.setValueAtTime((Math.random() * 0.006 + 0.001), audioCtx.currentTime);
+        }, 200);
+
+        const origAudioStop = audioTrack.stop.bind(audioTrack);
+        audioTrack.stop = () => {
+          clearInterval(audioIntervalId);
+          osc.stop();
+          audioCtx.close();
+          origAudioStop();
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to create simulated audio:', e);
+    }
+
+    const tracks = [];
+    if (videoTrack) tracks.push(videoTrack);
+    if (audioTrack) tracks.push(audioTrack);
+
+    return new MediaStream(tracks);
+  };
+
   // Request browser permissions and load streams
   const initMedia = async (camId?: string, micId?: string) => {
     try {
       setErrorMessage(null);
+      setUsingSimulatedMedia(false);
       stopMedia();
 
       // Setup audio and video constraints
@@ -180,23 +326,45 @@ export default function WaitingRoom({ interview, userRole, onBack, onEnterCall }
       // Refresh device names now that permission is granted
       await enumerateDevices();
     } catch (err: any) {
-      console.error('Browser media access failed:', err);
-      let msg = 'Failed to load media devices. ';
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Camera or Microphone permission denied. Please grant media permissions in your browser address bar.';
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        msg = 'No camera or microphone hardware detected on your system.';
-      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        msg = 'Your camera or microphone is already in use by another browser tab or app.';
-      } else if (err.name === 'OverconstrainedError') {
-        // Fallback to default constraints if device ID constraint fails
-        console.warn('Overconstrained devices. Retrying with defaults...');
-        initMedia();
-        return;
-      } else {
-        msg += err.message || '';
+      console.warn('Browser media access failed. Falling back to simulated stream. Error:', err);
+      
+      try {
+        const simulatedStream = createSimulatedStream();
+        streamRef.current = simulatedStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = simulatedStream;
+        }
+
+        // Configure tracks
+        simulatedStream.getVideoTracks().forEach(t => t.enabled = cameraActive);
+        simulatedStream.getAudioTracks().forEach(t => t.enabled = micActive);
+
+        // Update camera and microphone selectors with simulated options
+        setCameras([{ deviceId: 'simulated-cam', label: 'Simulated Camera', kind: 'videoinput', groupId: 'simulated' } as any]);
+        setMicrophones([{ deviceId: 'simulated-mic', label: 'Simulated Microphone', kind: 'audioinput', groupId: 'simulated' } as any]);
+        setSelectedCamId('simulated-cam');
+        setSelectedMicId('simulated-mic');
+        
+        setErrorMessage(null);
+        setUsingSimulatedMedia(true);
+
+        // Start visualizer using simulated audio track
+        startAudioAnalyser(simulatedStream);
+      } catch (simErr) {
+        console.error('Failed to instantiate simulated media backup:', simErr);
+        let msg = 'Failed to load media devices. ';
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          msg = 'Camera or Microphone permission denied. Please grant media permissions in your browser address bar.';
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          msg = 'No camera or microphone hardware detected on your system.';
+        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+          msg = 'Your camera or microphone is already in use by another browser tab or app.';
+        } else {
+          msg += err.message || '';
+        }
+        setErrorMessage(msg);
+        setUsingSimulatedMedia(false);
       }
-      setErrorMessage(msg);
     }
   };
 
@@ -296,17 +464,39 @@ export default function WaitingRoom({ interview, userRole, onBack, onEnterCall }
                 <p style={{ fontSize: '0.8rem', margin: 0, color: 'var(--text-muted)' }}>{errorMessage}</p>
               </div>
             ) : cameraActive ? (
-              <video 
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                style={{ 
-                  width: '100%', 
-                  height: '100%', 
-                  objectFit: 'cover'
-                }}
-              />
+              <>
+                <video 
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{ 
+                    width: '100%', 
+                    height: '100%', 
+                    objectFit: 'cover'
+                  }}
+                />
+                {usingSimulatedMedia && (
+                  <div style={{ 
+                    position: 'absolute', 
+                    top: '16px', 
+                    left: '16px', 
+                    background: 'rgba(245, 158, 11, 0.95)', 
+                    color: '#fff', 
+                    padding: '6px 12px', 
+                    borderRadius: '20px', 
+                    fontSize: '0.75rem', 
+                    fontWeight: 'bold', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '6px', 
+                    zIndex: 10,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                  }}>
+                    <ShieldAlert size={14} /> Simulated Camera Active
+                  </div>
+                )}
+              </>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', color: 'var(--danger)' }}>
                 <CameraOff size={48} />
