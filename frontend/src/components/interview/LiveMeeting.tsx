@@ -27,8 +27,8 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
   const [activeTab, setActiveTab] = useState<'chat' | 'info'>('chat');
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
-    { id: '1', sender: 'HR Recruiter', senderRole: 'hr', text: 'Hello Alice, welcome to your technical assessment. Can you hear me clearly?', time: '10:01 AM' },
-    { id: '2', sender: 'Alice Smith', senderRole: 'student', text: 'Yes, I can hear you loud and clear. Glad to be here!', time: '10:01 AM' }
+    { id: '1', sender: 'HR Recruiter', senderRole: 'hr', text: `Hello ${interview.studentName || 'Candidate'}, welcome to your technical assessment. Can you hear me clearly?`, time: '10:01 AM' },
+    { id: '2', sender: interview.studentName || 'Candidate', senderRole: 'student', text: 'Yes, I can hear you loud and clear. Glad to be here!', time: '10:01 AM' }
   ]);
   const [inputText, setInputText] = useState('');
   const [timerSeconds, setTimerSeconds] = useState(0);

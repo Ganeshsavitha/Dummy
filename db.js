@@ -977,16 +977,55 @@ async function createInterview(meetingId, hrId, studentId, scheduledDate, schedu
   return await getInterviewById(id);
 }
 
+function formatInterview(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    meetingId: row.meeting_id,
+    hrId: row.hr_id,
+    studentId: row.student_id,
+    date: row.scheduled_date,
+    time: row.scheduled_time,
+    duration: row.duration,
+    type: row.type,
+    status: row.status,
+    hrName: row.hr_name || "HR Recruiter",
+    studentName: row.student_name || "Candidate",
+    studentEmail: row.student_email || "",
+    companyName: row.company_name || ""
+  };
+}
+
 async function getInterviewById(id) {
-  return await dbGet("SELECT * FROM interviews WHERE id = ?", [id]);
+  const row = await dbGet(
+    `SELECT i.*, 
+            hr.full_name as hr_name, hr.company_name,
+            std.full_name as student_name, std.email as student_email 
+     FROM interviews i
+     LEFT JOIN users hr ON i.hr_id = hr.id
+     LEFT JOIN users std ON i.student_id = std.id
+     WHERE i.id = ?`,
+    [id]
+  );
+  return formatInterview(row);
 }
 
 async function getInterviewByMeetingId(meetingId) {
-  return await dbGet("SELECT * FROM interviews WHERE meeting_id = ?", [meetingId]);
+  const row = await dbGet(
+    `SELECT i.*, 
+            hr.full_name as hr_name, hr.company_name,
+            std.full_name as student_name, std.email as student_email 
+     FROM interviews i
+     LEFT JOIN users hr ON i.hr_id = hr.id
+     LEFT JOIN users std ON i.student_id = std.id
+     WHERE i.meeting_id = ?`,
+    [meetingId]
+  );
+  return formatInterview(row);
 }
 
 async function getInterviewsForStudent(studentId) {
-  return await dbAll(
+  const rows = await dbAll(
     `SELECT i.*, u.full_name as hr_name, u.company_name 
      FROM interviews i 
      JOIN users u ON i.hr_id = u.id 
@@ -994,10 +1033,11 @@ async function getInterviewsForStudent(studentId) {
      ORDER BY i.scheduled_date DESC, i.scheduled_time DESC`,
     [studentId]
   );
+  return rows.map(formatInterview);
 }
 
 async function getInterviewsForHR(hrId) {
-  return await dbAll(
+  const rows = await dbAll(
     `SELECT i.*, u.full_name as student_name, u.email as student_email, u.cgpa, u.department, u.skills 
      FROM interviews i 
      JOIN users u ON i.student_id = u.id 
@@ -1005,6 +1045,7 @@ async function getInterviewsForHR(hrId) {
      ORDER BY i.scheduled_date DESC, i.scheduled_time DESC`,
     [hrId]
   );
+  return rows.map(formatInterview);
 }
 
 async function updateInterviewStatus(id, status) {
@@ -1076,7 +1117,7 @@ async function saveInterviewHistory(interviewId, studentJoinedAt, hrJoinedAt, en
 }
 
 async function getAllInterviewsForAdmin() {
-  return await dbAll(
+  const rows = await dbAll(
     `SELECT i.*, 
             hr.full_name as hr_name, hr.company_name,
             std.full_name as student_name, std.email as student_email 
@@ -1085,6 +1126,7 @@ async function getAllInterviewsForAdmin() {
      JOIN users std ON i.student_id = std.id
      ORDER BY i.scheduled_date DESC, i.scheduled_time DESC`
   );
+  return rows.map(formatInterview);
 }
 
 module.exports = {
