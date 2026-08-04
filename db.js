@@ -206,6 +206,63 @@ async function initDb() {
     )
   `);
 
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS interviews (
+      id TEXT PRIMARY KEY,
+      meeting_id TEXT UNIQUE NOT NULL,
+      hr_id TEXT NOT NULL,
+      student_id TEXT NOT NULL,
+      scheduled_date TEXT NOT NULL,
+      scheduled_time TEXT NOT NULL,
+      duration INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT CHECK(status IN ('scheduled', 'waiting', 'ongoing', 'completed', 'cancelled')) DEFAULT 'scheduled',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (hr_id) REFERENCES users(id),
+      FOREIGN KEY (student_id) REFERENCES users(id)
+    )
+  `);
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS interview_feedback (
+      id TEXT PRIMARY KEY,
+      interview_id TEXT UNIQUE NOT NULL,
+      communication_score INTEGER CHECK(communication_score >= 1 AND communication_score <= 10),
+      technical_score INTEGER CHECK(technical_score >= 1 AND technical_score <= 10),
+      confidence_score INTEGER CHECK(confidence_score >= 1 AND confidence_score <= 10),
+      problem_solving_score INTEGER CHECK(problem_solving_score >= 1 AND problem_solving_score <= 10),
+      overall_rating REAL,
+      comments TEXT,
+      result TEXT CHECK(result IN ('selected', 'rejected', 'hold')),
+      submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (interview_id) REFERENCES interviews(id)
+    )
+  `);
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS interview_chat (
+      id TEXT PRIMARY KEY,
+      interview_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      message TEXT NOT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (interview_id) REFERENCES interviews(id),
+      FOREIGN KEY (sender_id) REFERENCES users(id)
+    )
+  `);
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS interview_history (
+      id TEXT PRIMARY KEY,
+      interview_id TEXT NOT NULL,
+      student_joined_at TEXT,
+      hr_joined_at TEXT,
+      ended_at TEXT,
+      duration_seconds INTEGER,
+      FOREIGN KEY (interview_id) REFERENCES interviews(id)
+    )
+  `);
+
   // Seed default users if users table is empty
   const usersCount = await dbGet("SELECT COUNT(*) as count FROM users");
   if (usersCount.count === 0) {
@@ -909,6 +966,127 @@ async function savePlacementQuestions(driveId, roundId, questions) {
   }
 }
 
+// Live HR Interview Operations
+async function createInterview(meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type) {
+  const id = generateUUID();
+  await dbRun(
+    `INSERT INTO interviews (id, meeting_id, hr_id, student_id, scheduled_date, scheduled_time, duration, type, status) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')`,
+    [id, meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type]
+  );
+  return await getInterviewById(id);
+}
+
+async function getInterviewById(id) {
+  return await dbGet("SELECT * FROM interviews WHERE id = ?", [id]);
+}
+
+async function getInterviewByMeetingId(meetingId) {
+  return await dbGet("SELECT * FROM interviews WHERE meeting_id = ?", [meetingId]);
+}
+
+async function getInterviewsForStudent(studentId) {
+  return await dbAll(
+    `SELECT i.*, u.full_name as hr_name, u.company_name 
+     FROM interviews i 
+     JOIN users u ON i.hr_id = u.id 
+     WHERE i.student_id = ? 
+     ORDER BY i.scheduled_date DESC, i.scheduled_time DESC`,
+    [studentId]
+  );
+}
+
+async function getInterviewsForHR(hrId) {
+  return await dbAll(
+    `SELECT i.*, u.full_name as student_name, u.email as student_email, u.cgpa, u.department, u.skills 
+     FROM interviews i 
+     JOIN users u ON i.student_id = u.id 
+     WHERE i.hr_id = ? 
+     ORDER BY i.scheduled_date DESC, i.scheduled_time DESC`,
+    [hrId]
+  );
+}
+
+async function updateInterviewStatus(id, status) {
+  await dbRun("UPDATE interviews SET status = ? WHERE id = ?", [status, id]);
+  return await getInterviewById(id);
+}
+
+async function saveInterviewFeedback(interviewId, communicationScore, technicalScore, confidenceScore, problemSolvingScore, overallRating, comments, result) {
+  const existing = await getInterviewFeedback(interviewId);
+  if (existing) {
+    await dbRun(
+      `UPDATE interview_feedback SET 
+        communication_score = ?, 
+        technical_score = ?, 
+        confidence_score = ?, 
+        problem_solving_score = ?, 
+        overall_rating = ?, 
+        comments = ?, 
+        result = ?, 
+        submitted_at = CURRENT_TIMESTAMP 
+       WHERE interview_id = ?`,
+      [communicationScore, technicalScore, confidenceScore, problemSolvingScore, overallRating, comments, result, interviewId]
+    );
+  } else {
+    const id = generateUUID();
+    await dbRun(
+      `INSERT INTO interview_feedback (id, interview_id, communication_score, technical_score, confidence_score, problem_solving_score, overall_rating, comments, result) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, interviewId, communicationScore, technicalScore, confidenceScore, problemSolvingScore, overallRating, comments, result]
+    );
+  }
+  // Also update parent interview status to 'completed'
+  await dbRun("UPDATE interviews SET status = 'completed' WHERE id = ?", [interviewId]);
+  return await getInterviewFeedback(interviewId);
+}
+
+async function getInterviewFeedback(interviewId) {
+  return await dbGet("SELECT * FROM interview_feedback WHERE interview_id = ?", [interviewId]);
+}
+
+async function saveInterviewChatMessage(interviewId, senderId, message) {
+  const id = generateUUID();
+  await dbRun(
+    "INSERT INTO interview_chat (id, interview_id, sender_id, message) VALUES (?, ?, ?, ?)",
+    [id, interviewId, senderId, message]
+  );
+  return { id, interviewId, senderId, message, timestamp: new Date().toISOString() };
+}
+
+async function getInterviewChatMessages(interviewId) {
+  return await dbAll(
+    `SELECT c.*, u.full_name as sender_name, u.role as sender_role 
+     FROM interview_chat c 
+     JOIN users u ON c.sender_id = u.id 
+     WHERE c.interview_id = ? 
+     ORDER BY c.timestamp ASC`,
+    [interviewId]
+  );
+}
+
+async function saveInterviewHistory(interviewId, studentJoinedAt, hrJoinedAt, endedAt, durationSeconds) {
+  const id = generateUUID();
+  await dbRun(
+    `INSERT INTO interview_history (id, interview_id, student_joined_at, hr_joined_at, ended_at, duration_seconds) 
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, interviewId, studentJoinedAt, hrJoinedAt, endedAt, durationSeconds]
+  );
+  return { id, interviewId, studentJoinedAt, hrJoinedAt, endedAt, durationSeconds };
+}
+
+async function getAllInterviewsForAdmin() {
+  return await dbAll(
+    `SELECT i.*, 
+            hr.full_name as hr_name, hr.company_name,
+            std.full_name as student_name, std.email as student_email 
+     FROM interviews i
+     JOIN users hr ON i.hr_id = hr.id
+     JOIN users std ON i.student_id = std.id
+     ORDER BY i.scheduled_date DESC, i.scheduled_time DESC`
+  );
+}
+
 module.exports = {
   db,
   initDb,
@@ -986,5 +1164,19 @@ module.exports = {
   deleteAllPlacementProgress,
   
   getPlacementQuestions,
-  savePlacementQuestions
+  savePlacementQuestions,
+
+  // Live Interviews
+  createInterview,
+  getInterviewById,
+  getInterviewByMeetingId,
+  getInterviewsForStudent,
+  getInterviewsForHR,
+  updateInterviewStatus,
+  saveInterviewFeedback,
+  getInterviewFeedback,
+  saveInterviewChatMessage,
+  getInterviewChatMessages,
+  saveInterviewHistory,
+  getAllInterviewsForAdmin
 };

@@ -3,9 +3,22 @@ import {
   Briefcase, Code, FileText, Grid, Award, Settings, Plus, ShieldAlert, 
   LogOut, Download, Upload, Cpu, Trash2, Copy, Play, CheckCircle2, 
   AlertTriangle, Monitor, Shield, ChevronRight, ChevronLeft, Send, Check, 
-  Layers, AlertCircle, FileSpreadsheet, MapPin, Calendar, Clock, Sparkles, CheckSquare, Eye, Users
+  Layers, AlertCircle, FileSpreadsheet, MapPin, Calendar, Clock, Sparkles, CheckSquare, Eye, Users,
+  Video, Activity
 } from 'lucide-react';
 import io from 'socket.io-client';
+
+// Live HR Interview Imports
+import { mockInterviews as initialMockInterviews, mockFeedbackList } from './components/interview/mockData';
+import type { Interview, Feedback } from './components/interview/mockData';
+import ScheduleForm from './components/interview/ScheduleForm';
+import InterviewDashboard from './components/interview/InterviewDashboard';
+import WaitingRoom from './components/interview/WaitingRoom';
+import LiveMeeting from './components/interview/LiveMeeting';
+import InterviewHistory from './components/interview/InterviewHistory';
+import StudentInterviewSchedule from './components/interview/StudentInterviewSchedule';
+import AdminReports from './components/interview/AdminReports';
+import AdminMonitoring from './components/interview/AdminMonitoring';
 
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:3000'
@@ -81,6 +94,35 @@ export default function App() {
 
   // Layout navigation
   const [view, setView] = useState('dashboard');
+
+  // ==========================================
+  // LIVE HR INTERVIEW STATE
+  // ==========================================
+  const [liveInterviews, setLiveInterviews] = useState<Interview[]>(initialMockInterviews);
+  const [activeInterview, setActiveInterview] = useState<Interview | null>(null);
+
+  const fetchInterviews = async () => {
+    const token = localStorage.getItem('hiregrad_token');
+    if (!token || !user) return;
+    try {
+      const rolePath = user.role === 'student' ? 'student' : 'hr';
+      const res = await fetch(`${API_BASE}/api/placement/interviews/${rolePath}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLiveInterviews(data.interviews);
+      }
+    } catch (err) {
+      console.error('Failed to fetch interviews:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchInterviews();
+    }
+  }, [user]);
 
   // Admin portal state
   const [adminData, setAdminData] = useState<any>({ companies: [], drives: [], students: [] });
@@ -1627,6 +1669,14 @@ export default function App() {
                 <Users size={16} /> Profile
               </button>
 
+              <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '16px 0 8px', fontWeight: 'bold' }}>Live HR Interviews</div>
+              <button className={`btn-secondary ${view === 'student-interviews' ? 'active' : ''}`} style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => setView('student-interviews')}>
+                <Video size={16} /> Interview Schedule
+              </button>
+              <button className={`btn-secondary ${view === 'student-interview-history' ? 'active' : ''}`} style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => setView('student-interview-history')}>
+                <FileText size={16} /> Interview Feedback
+              </button>
+
               <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '16px 0 8px', fontWeight: 'bold' }}>AI Practice Modules</div>
               <button className={`btn-secondary ${view === 'coding-sandbox' ? 'active' : ''}`} style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => setView('coding-sandbox')}>
                 <Code size={16} /> Coding Sandbox
@@ -1651,7 +1701,7 @@ export default function App() {
               ].map((item) => (
                 <button 
                   key={item.step} 
-                  className={`btn-secondary ${recruitmentStep === item.step ? 'active' : ''}`} 
+                  className={`btn-secondary ${view === 'drives' && recruitmentStep === item.step ? 'active' : ''}`} 
                   style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem' }}
                   onClick={() => {
                     if (item.step > 3 && recruitmentStep <= 3 && selectedDrive?.status === 'Draft') {
@@ -1661,6 +1711,7 @@ export default function App() {
                         return;
                       }
                     }
+                    setView('drives');
                     setRecruitmentStep(item.step);
                   }}
                 >
@@ -1668,6 +1719,13 @@ export default function App() {
                   {item.name}
                 </button>
               ))}
+              <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '16px 0 8px', fontWeight: 'bold' }}>Live HR Interviews</div>
+              <button className={`btn-secondary ${view === 'hr-interviews-dashboard' || view === 'hr-schedule-interview' ? 'active' : ''}`} style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem' }} onClick={() => setView('hr-interviews-dashboard')}>
+                <Video size={16} /> Interview Hub
+              </button>
+              <button className={`btn-secondary ${view === 'hr-interview-history' ? 'active' : ''}`} style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem' }} onClick={() => setView('hr-interview-history')}>
+                <FileText size={16} /> History & Decisions
+              </button>
             </>
           )}
 
@@ -1675,6 +1733,13 @@ export default function App() {
             <>
               <button className={`btn-secondary ${view === 'stats' ? 'active' : ''}`} style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => setView('stats')}>
                 <Grid size={16} /> Admin panel
+              </button>
+              <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '16px 0 8px', fontWeight: 'bold' }}>Live Interviews</div>
+              <button className={`btn-secondary ${view === 'admin-interviews-reports' ? 'active' : ''}`} style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => setView('admin-interviews-reports')}>
+                <FileText size={16} /> Interview Reports
+              </button>
+              <button className={`btn-secondary ${view === 'admin-interviews-monitoring' ? 'active' : ''}`} style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px' }} onClick={() => setView('admin-interviews-monitoring')}>
+                <Activity size={16} /> Active Monitor
               </button>
             </>
           )}
@@ -2425,6 +2490,63 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {/* Student Live Interviews Schedule */}
+            {view === 'student-interviews' && (
+              <StudentInterviewSchedule 
+                interviews={liveInterviews}
+                onJoinLobby={(interview) => {
+                  setActiveInterview(interview);
+                  setView('shared-waiting-room');
+                }}
+              />
+            )}
+
+            {/* Student Interview History & Feedback */}
+            {view === 'student-interview-history' && (
+              <InterviewHistory 
+                interviews={liveInterviews} 
+                userRole="student" 
+              />
+            )}
+
+            {/* Shared Waiting Room - Student */}
+            {view === 'shared-waiting-room' && activeInterview && (
+              <WaitingRoom 
+                interview={activeInterview}
+                userRole="student"
+                onBack={() => setView('student-interviews')}
+                onEnterCall={() => {
+                  fetch(`${API_BASE}/api/placement/interviews/${activeInterview.id}/status`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}`
+                    },
+                    body: JSON.stringify({ status: 'ongoing' })
+                  }).then(() => {
+                    fetchInterviews();
+                    setView('shared-live-interview');
+                  }).catch(err => {
+                    console.error('Failed to update status:', err);
+                    setView('shared-live-interview');
+                  });
+                }}
+              />
+            )}
+
+            {/* Shared Live Meeting - Student */}
+            {view === 'shared-live-interview' && activeInterview && (
+              <LiveMeeting 
+                interview={activeInterview}
+                userRole="student"
+                onLeave={() => {
+                  setActiveInterview(null);
+                  setView('student-interviews');
+                }}
+                onSubmitEvaluation={() => {}} 
+              />
+            )}
           </div>
         )}
       </div>
@@ -2433,17 +2555,101 @@ export default function App() {
         {/* HR RECRUITER 7-STEP HORIZONTAL WIZARD */}
         {user && user.role === 'company' && (
           <div style={{ width: '100%' }}>
-            {/* Active Drive Selector & Header */}
-            <div className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', padding: '16px 24px', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
-              <div>
-                <h2 style={{ margin: 0 }}>Hiring Workspace</h2>
-                <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Configure drives, monitor candidate sessions, and track results</p>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Active Drive:</span>
-                <strong style={{ color: 'var(--primary)', fontSize: '1rem' }}>{driveNameInput || 'None'}</strong>
-              </div>
-            </div>
+            {view === 'hr-interviews-dashboard' ? (
+              <InterviewDashboard 
+                interviews={liveInterviews}
+                onScheduleClick={() => setView('hr-schedule-interview')}
+                onJoinCall={(interview) => {
+                  setActiveInterview(interview);
+                  setView('shared-waiting-room');
+                }}
+                onViewHistory={() => setView('hr-interview-history')}
+              />
+            ) : view === 'hr-schedule-interview' ? (
+              <ScheduleForm 
+                onBack={() => setView('hr-interviews-dashboard')}
+                onScheduleAdded={(newInterview) => {
+                  setLiveInterviews(prev => [newInterview, ...prev]);
+                }}
+              />
+            ) : view === 'hr-interview-history' ? (
+              <InterviewHistory 
+                interviews={liveInterviews} 
+                userRole="hr" 
+                onBack={() => setView('hr-interviews-dashboard')}
+              />
+            ) : view === 'shared-waiting-room' && activeInterview ? (
+              <WaitingRoom 
+                interview={activeInterview}
+                userRole="hr"
+                onBack={() => setView('hr-interviews-dashboard')}
+                onEnterCall={() => {
+                  fetch(`${API_BASE}/api/placement/interviews/${activeInterview.id}/status`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}`
+                    },
+                    body: JSON.stringify({ status: 'ongoing' })
+                  }).then(() => {
+                    fetchInterviews();
+                    setView('shared-live-interview');
+                  }).catch(err => {
+                    console.error('Failed to update status:', err);
+                    setView('shared-live-interview');
+                  });
+                }}
+              />
+            ) : view === 'shared-live-interview' && activeInterview ? (
+              <LiveMeeting 
+                interview={activeInterview}
+                userRole="hr"
+                onLeave={() => {
+                  setActiveInterview(null);
+                  setView('hr-interviews-dashboard');
+                }}
+                onSubmitEvaluation={(feedback) => {
+                  fetch(`${API_BASE}/api/placement/interviews/${activeInterview.id}/evaluate`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}`
+                    },
+                    body: JSON.stringify({
+                      communicationScore: feedback.communicationScore,
+                      technicalScore: feedback.technicalScore,
+                      confidenceScore: feedback.confidenceScore,
+                      problemSolvingScore: feedback.problemSolvingScore,
+                      overallRating: feedback.overallRating,
+                      comments: feedback.comments,
+                      result: feedback.result
+                    })
+                  }).then(res => res.json()).then(data => {
+                    if (data.success) {
+                      fetchInterviews();
+                      setActiveInterview(null);
+                      setView('hr-interview-history');
+                    } else {
+                      alert(data.message || 'Failed to submit evaluation.');
+                    }
+                  }).catch(err => {
+                    console.error('Error submitting evaluation:', err);
+                  });
+                }}
+              />
+            ) : (
+              <>
+                {/* Active Drive Selector & Header */}
+                <div className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', padding: '16px 24px', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
+                  <div>
+                    <h2 style={{ margin: 0 }}>Hiring Workspace</h2>
+                    <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Configure drives, monitor candidate sessions, and track results</p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Active Drive:</span>
+                    <strong style={{ color: 'var(--primary)', fontSize: '1rem' }}>{driveNameInput || 'None'}</strong>
+                  </div>
+                </div>
             {/* Header Horizontal Stepper */}
             <div className="wizard-stepper">
               {[
@@ -3164,15 +3370,22 @@ export default function App() {
                 </div>
               </div>
             )}
-
+            </>
+            )}
           </div>
         )}
 
         {/* ADMIN WORKSPACE */}
         {user && user.role === 'admin' && (
           <div>
-            <h2>Admin Controller Workspace</h2>
-            <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>Full access logs, recruiter drives, and system tracking reports</p>
+            {view === 'admin-interviews-reports' ? (
+              <AdminReports />
+            ) : view === 'admin-interviews-monitoring' ? (
+              <AdminMonitoring />
+            ) : (
+              <>
+                <h2>Admin Controller Workspace</h2>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>Full access logs, recruiter drives, and system tracking reports</p>
 
             <div className="tab-bar">
               <button className={`tab-btn ${adminTab === 'students' ? 'active' : ''}`} onClick={() => setAdminTab('students')}>
@@ -3418,6 +3631,8 @@ export default function App() {
                   </table>
                 </div>
               </div>
+            )}
+            </>
             )}
           </div>
         )}

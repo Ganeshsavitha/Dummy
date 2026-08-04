@@ -1253,6 +1253,131 @@ app.get("/api/placement/candidates/:driveId", async (req, res) => {
   }
 });
 
+// ========================================================
+// LIVE HR INTERVIEW ENDPOINTS (Phase 4 & 5)
+// ========================================================
+
+// Fetch all students for scheduling dropdown (HR or Admin only)
+app.get("/api/placement/students", authenticateJWT, async (req, res) => {
+  if (req.user.role !== 'hr' && req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, message: "Unauthorized. HR or Admin only." });
+  }
+
+  try {
+    const list = await db.getAllStudents();
+    res.json({ success: true, students: list });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Schedule an interview (HR only)
+app.post("/api/placement/interviews/schedule", authenticateJWT, async (req, res) => {
+  if (req.user.role !== 'hr' && req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, message: "Unauthorized. HR only." });
+  }
+
+  const { studentId, date, time, duration, type, meetingId } = req.body;
+  if (!studentId || !date || !time || !duration || !type || !meetingId) {
+    return res.status(400).json({ success: false, message: "Missing scheduling fields." });
+  }
+
+  try {
+    const interview = await db.createInterview(meetingId, req.user.id, studentId, date, time, duration, type);
+    res.json({ success: true, interview });
+  } catch (err) {
+    console.error("Error scheduling interview:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Retrieve interviews for student
+app.get("/api/placement/interviews/student", authenticateJWT, async (req, res) => {
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ success: false, message: "Unauthorized. Students only." });
+  }
+
+  try {
+    const list = await db.getInterviewsForStudent(req.user.id);
+    res.json({ success: true, interviews: list });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Retrieve interviews for HR
+app.get("/api/placement/interviews/hr", authenticateJWT, async (req, res) => {
+  if (req.user.role !== 'hr') {
+    return res.status(403).json({ success: false, message: "Unauthorized. HR only." });
+  }
+
+  try {
+    const list = await db.getInterviewsForHR(req.user.id);
+    res.json({ success: true, interviews: list });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Update interview status (e.g., set to ongoing when HR admits student)
+app.post("/api/placement/interviews/:id/status", authenticateJWT, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!['scheduled', 'waiting', 'ongoing', 'completed', 'cancelled'].includes(status)) {
+    return res.status(400).json({ success: false, message: "Invalid status." });
+  }
+
+  try {
+    const interview = await db.updateInterviewStatus(id, status);
+    res.json({ success: true, interview });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Submit evaluation feedback (HR only)
+app.post("/api/placement/interviews/:id/evaluate", authenticateJWT, async (req, res) => {
+  if (req.user.role !== 'hr') {
+    return res.status(403).json({ success: false, message: "Unauthorized. HR only." });
+  }
+
+  const { id } = req.params;
+  const { communicationScore, technicalScore, confidenceScore, problemSolvingScore, overallRating, comments, result } = req.body;
+
+  if (communicationScore === undefined || technicalScore === undefined || confidenceScore === undefined || problemSolvingScore === undefined || !comments || !result) {
+    return res.status(400).json({ success: false, message: "Missing evaluation inputs." });
+  }
+
+  try {
+    const feedback = await db.saveInterviewFeedback(
+      id,
+      parseInt(communicationScore),
+      parseInt(technicalScore),
+      parseInt(confidenceScore),
+      parseInt(problemSolvingScore),
+      parseFloat(overallRating),
+      comments,
+      result
+    );
+    res.json({ success: true, feedback });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Fetch feedback details for a specific completed interview
+app.get("/api/placement/interviews/:id/feedback", authenticateJWT, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const feedback = await db.getInterviewFeedback(id);
+    res.json({ success: true, feedback });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 app.get("/api/admin/system-data", async (req, res) => {
   try {
     const companies = await db.getPlacementCompanies();
