@@ -262,6 +262,7 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
 
         const iceCandidateQueue: any[] = [];
         const processQueuedIceCandidates = async () => {
+          console.log(`[WebRTC] Processing ${iceCandidateQueue.length} queued ICE candidates...`);
           while (iceCandidateQueue.length > 0) {
             const candidateData = iceCandidateQueue.shift();
             if (candidateData) {
@@ -275,11 +276,14 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           }
         };
 
-        // ICE candidate callback
+        // ICE candidate callback - explicitly map fields for serialization
         pc.onicecandidate = (event) => {
           if (event.candidate) {
             console.log("[WebRTC] Emitting ICE candidate to signaling server");
-            socket.emit("ice-candidate", { meetingId: interview.meetingId, candidate: event.candidate });
+            socket.emit("ice-candidate", {
+              meetingId: interview.meetingId,
+              candidate: event.candidate.toJSON()
+            });
           }
         };
 
@@ -300,40 +304,60 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           }
         };
 
-        // Signaling handlers
-        socket.on("user-joined", async (data: any) => {
-          console.log(`[WebRTC Signaling] Remote user joined: ${data.userRole}. Initiating offer...`);
-          try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            socket.emit("offer", { meetingId: interview.meetingId, offer });
-          } catch (err) {
-            console.error("[WebRTC] Failed to create offer:", err);
-          }
-        });
+        // Signaling handlers - role-separated (HR is caller, Student is responder)
+        if (userRole === 'hr') {
+          // HR joined room, check if student is already in the room
+          socket.on("join-ack", async (data: any) => {
+            console.log(`[WebRTC] HR joined room. Active participants count: ${data.numClients}`);
+            if (data.numClients > 1) {
+              console.log("[WebRTC] Student is already present. HR initiating offer...");
+              try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit("offer", { meetingId: interview.meetingId, offer: { type: offer.type, sdp: offer.sdp } });
+              } catch (err) {
+                console.error("[WebRTC] Failed to create offer on join-ack:", err);
+              }
+            }
+          });
 
-        socket.on("offer", async (data: any) => {
-          console.log("[WebRTC Signaling] Received offer. Creating response answer...");
-          try {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-            await processQueuedIceCandidates();
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            socket.emit("answer", { meetingId: interview.meetingId, answer });
-          } catch (err) {
-            console.error("[WebRTC] Failed to handle offer:", err);
-          }
-        });
+          // Student joined room later
+          socket.on("user-joined", async (data: any) => {
+            console.log(`[WebRTC Signaling] Student joined: ${data.userId}. HR initiating offer...`);
+            try {
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              socket.emit("offer", { meetingId: interview.meetingId, offer: { type: offer.type, sdp: offer.sdp } });
+            } catch (err) {
+              console.error("[WebRTC] Failed to create offer on user-joined:", err);
+            }
+          });
 
-        socket.on("answer", async (data: any) => {
-          console.log("[WebRTC Signaling] Received answer. Resolving remote description...");
-          try {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-            await processQueuedIceCandidates();
-          } catch (err) {
-            console.error("[WebRTC] Failed to handle answer:", err);
-          }
-        });
+          // HR receives answer from Student
+          socket.on("answer", async (data: any) => {
+            console.log("[WebRTC Signaling] HR received answer. Resolving remote description...");
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+              await processQueuedIceCandidates();
+            } catch (err) {
+              console.error("[WebRTC] Failed to handle answer:", err);
+            }
+          });
+        } else {
+          // Student receives offer from HR
+          socket.on("offer", async (data: any) => {
+            console.log("[WebRTC Signaling] Student received offer. Creating response answer...");
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+              await processQueuedIceCandidates();
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              socket.emit("answer", { meetingId: interview.meetingId, answer: { type: answer.type, sdp: answer.sdp } });
+            } catch (err) {
+              console.error("[WebRTC] Failed to handle offer:", err);
+            }
+          });
+        }
 
         socket.on("ice-candidate", async (data: any) => {
           console.log("[WebRTC Signaling] Received remote ICE candidate.");
@@ -341,6 +365,7 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
             if (data.candidate) {
               if (pc.remoteDescription) {
                 await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+                console.log("[WebRTC] Applied remote ICE candidate");
               } else {
                 console.log("[WebRTC] Remote description not set yet. Queueing ICE candidate.");
                 iceCandidateQueue.push(data.candidate);
@@ -398,12 +423,14 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
         peerConnectionRef.current = null;
       }
 
+      socket.off("join-ack");
       socket.off("user-joined");
       socket.off("offer");
       socket.off("answer");
       socket.off("ice-candidate");
       socket.off("user-left");
       socket.off("chat-message");
+      socket.off("join-error");
     };
   }, [interview.meetingId]);
 

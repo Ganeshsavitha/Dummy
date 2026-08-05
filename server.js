@@ -1646,6 +1646,13 @@ io.on("connection", (socket) => {
       socket.userId = userId;
       console.log(`[Socket Success] User ${userId} (${userRole}) joined meeting room: ${formattedRoom}`);
       
+      // Get number of clients in the room to acknowledge to the joiner
+      const clients = io.sockets.adapter.rooms.get(formattedRoom);
+      const numClients = clients ? clients.size : 0;
+      
+      // Emit acknowledgment to the sender
+      socket.emit("join-ack", { numClients });
+      
       // Notify others in the room
       socket.to(formattedRoom).emit("user-joined", { userId, userRole });
     } catch (e) {
