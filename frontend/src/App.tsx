@@ -354,6 +354,11 @@ export default function App() {
   const [codeAnswer, setCodeAnswer] = useState('');
   const [codeLanguage, setCodeLanguage] = useState('javascript');
   const [codeLogs, setCodeLogs] = useState<string[]>([]);
+  const [codingAnswers, setCodingAnswers] = useState<Record<number, string>>({});
+  const [codingLanguages, setCodingLanguages] = useState<Record<number, string>>({});
+  const [codingLogs, setCodingLogs] = useState<Record<number, string[]>>({});
+  const [isCodingRunning, setIsCodingRunning] = useState(false);
+  const [isExamSubmitting, setIsExamSubmitting] = useState(false);
   const [studentResultSummary, setStudentResultSummary] = useState<any>(null);
   const [studentProgressList, setStudentProgressList] = useState<any[]>([]);
 
@@ -620,6 +625,12 @@ export default function App() {
         }
         return prev;
       });
+    });
+
+    socket.on('new-interview-scheduled', (data: any) => {
+      console.log("[Socket] Received new-interview-scheduled event:", data);
+      fetchInterviews();
+      triggerToast(`📅 New Interview Scheduled: ${data.type.toUpperCase()} interview with ${data.hrName} on ${data.date} at ${data.time}`);
     });
 
     return () => {
@@ -1398,12 +1409,27 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/placement/questions/${driveId}/${roundId}`);
       const data = await res.json();
+      let questions = [];
       if (data.success && data.questions && data.questions.length > 0) {
-        setStudentQuestions(data.questions);
+        questions = data.questions;
       } else {
-        const fallback = getMockQuestions(targetD?.rounds?.find((r: any) => r.id === roundId)?.subject || 'Java', 5);
-        setStudentQuestions(fallback);
+        questions = getMockQuestions(targetD?.rounds?.find((r: any) => r.id === roundId)?.subject || 'Java', 5);
       }
+      setStudentQuestions(questions);
+
+      // Initialize coding states
+      const initialAnswers: Record<number, string> = {};
+      const initialLanguages: Record<number, string> = {};
+      const initialLogs: Record<number, string[]> = {};
+      questions.forEach((q: any, idx: number) => {
+        initialAnswers[idx] = q.starterCode || `function solution() {\n  // Write your code here\n}`;
+        initialLanguages[idx] = (q.subject || 'JavaScript').toLowerCase();
+        initialLogs[idx] = ['Console is idle. Click "Run Code" to compile.'];
+      });
+      setCodingAnswers(initialAnswers);
+      setCodingLanguages(initialLanguages);
+      setCodingLogs(initialLogs);
+
       setStudentExamState('exam');
       setStudentQuestionIndex(0);
       setSelectedAnswers({});
@@ -1415,37 +1441,136 @@ export default function App() {
     }
   };
 
-  const handleStudentSubmit = async () => {
-    let score = 0;
-    studentQuestions.forEach((q, idx) => {
-      if (selectedAnswers[idx] === q.correctIndex) score++;
-    });
+  const runStudentCode = async (qIdx: number) => {
+    const q = studentQuestions[qIdx];
+    const code = codingAnswers[qIdx] || '';
+    const lang = codingLanguages[qIdx] || 'javascript';
+    
+    setCodingLogs(prev => ({
+      ...prev,
+      [qIdx]: ['[AI Compiler] Initializing runtime compiler...', 'Sending code to compilation sandbox...']
+    }));
+    setIsCodingRunning(true);
 
-    const res = await fetch(`${API_BASE}/api/placement/session/submit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: user.username,
-        driveId: liveDriveAlert.driveId,
-        roundId: liveDriveAlert.roundId,
-        score,
-        total: studentQuestions.length
-      })
-    });
-    const data = await res.json();
-    if (data.success) {
-      setStudentResultSummary({ score, total: studentQuestions.length, status: data.status });
-      setStudentExamState('feedback');
-      
-      socket.emit('candidate-submit', {
-        username: user.username,
-        driveId: liveDriveAlert.driveId,
-        roundId: liveDriveAlert.roundId,
-        score,
-        status: data.status
+    try {
+      const res = await fetch(`${API_BASE}/api/evaluate-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: `${q.title || 'Coding Problem'}: ${q.questionText}`,
+          answer: code,
+          language: lang,
+          testCases: q.testCases || []
+        })
       });
-      fetchStudentProgress();
-      triggerToast('Exam submitted successfully!');
+      const data = await res.json();
+      if (data.success && data.feedback) {
+        const fb = data.feedback;
+        const logs = [
+          `[Compilation Status] ${fb.compilationStatus}`,
+          fb.errorMessage ? `[Compiler Error] ${fb.errorMessage}` : '',
+          `[Time Complexity] ${fb.timeComplexity || 'N/A'}`,
+          `[Space Complexity] ${fb.spaceComplexity || 'N/A'}`,
+          `[Estimated Score] ${fb.score || 0} / 10`,
+          '\n--- TEST CASE RUNS ---',
+          ...(fb.testResults || []).map((tr: any, idx: number) => 
+            `Testcase ${idx + 1}: ${tr.status === 'PASS' ? '✅ PASS' : '❌ FAIL'}\n  Input: ${tr.input}\n  Expected: ${tr.expected}\n  Actual: ${tr.actual}`
+          ),
+          '\n--- AI SUGGESTIONS ---',
+          ...(fb.suggestions || []).map((s: string) => `💡 ${s}`),
+          `\n[Code Logic Analysis]\n${fb.explanation}`
+        ].filter(line => line !== '');
+        
+        setCodingLogs(prev => ({ ...prev, [qIdx]: logs }));
+      } else {
+        setCodingLogs(prev => ({ ...prev, [qIdx]: ['❌ Compilation Failed', 'AI evaluation server returned an error response.'] }));
+      }
+    } catch (err) {
+      setCodingLogs(prev => ({ ...prev, [qIdx]: ['❌ Network error: Unable to reach AI evaluation sandbox.'] }));
+    } finally {
+      setIsCodingRunning(false);
+    }
+  };
+
+  const handleStudentSubmit = async () => {
+    const currentRound = drives.find(d => d.id === liveDriveAlert?.driveId)?.rounds?.find((r: any) => r.id === liveDriveAlert?.roundId);
+    const isCodingRound = currentRound?.type === 'coding';
+
+    setIsExamSubmitting(true);
+    let finalScore = 0;
+    
+    if (isCodingRound) {
+      triggerToast('⌛ AI Grading Engine is evaluating your code solutions. Please do not close this window...');
+      
+      let totalCodingScore = 0;
+      // Evaluate all coding questions in parallel
+      const evaluations = studentQuestions.map(async (q, idx) => {
+        const code = codingAnswers[idx] || '';
+        const lang = codingLanguages[idx] || 'javascript';
+        
+        try {
+          const res = await fetch(`${API_BASE}/api/evaluate-code`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: `${q.title || 'Coding Problem'}: ${q.questionText}`,
+              answer: code,
+              language: lang,
+              testCases: q.testCases || []
+            })
+          });
+          const data = await res.json();
+          if (data.success && data.feedback) {
+            return data.feedback.score || 0; // score out of 10
+          }
+        } catch (e) {
+          console.error("Evaluation failed for question index " + idx, e);
+        }
+        return 0;
+      });
+
+      const scores = await Promise.all(evaluations);
+      const sumScores = scores.reduce((sum, s) => sum + s, 0);
+      const averageScoreOutOf10 = studentQuestions.length > 0 ? (sumScores / studentQuestions.length) : 0;
+      finalScore = (averageScoreOutOf10 / 10) * studentQuestions.length; // score out of studentQuestions.length
+    } else {
+      // Normal MCQ score
+      studentQuestions.forEach((q, idx) => {
+        if (selectedAnswers[idx] === q.correctIndex) finalScore++;
+      });
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/placement/session/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: user.username,
+          driveId: liveDriveAlert.driveId,
+          roundId: liveDriveAlert.roundId,
+          score: finalScore,
+          total: studentQuestions.length
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStudentResultSummary({ score: finalScore, total: studentQuestions.length, status: data.status });
+        setStudentExamState('feedback');
+        
+        socket.emit('candidate-submit', {
+          username: user.username,
+          driveId: liveDriveAlert.driveId,
+          roundId: liveDriveAlert.roundId,
+          score: finalScore,
+          status: data.status
+        });
+        fetchStudentProgress();
+        triggerToast('Exam submitted successfully!');
+      }
+    } catch (err) {
+      alert('Error submitting exam.');
+    } finally {
+      setIsExamSubmitting(false);
     }
   };
 
@@ -1935,78 +2060,225 @@ export default function App() {
 
                 {/* Question body */}
                 {studentQuestions.length > 0 ? (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '12px' }}>
-                      <span>Question {studentQuestionIndex + 1} of {studentQuestions.length}</span>
-                      <span>Topic: {studentQuestions[studentQuestionIndex].topic || 'General'}</span>
-                    </div>
+                  (() => {
+                    const currentRound = drives.find(d => d.id === liveDriveAlert?.driveId)?.rounds?.find((r: any) => r.id === liveDriveAlert?.roundId);
+                    const isCodingRound = currentRound?.type === 'coding';
+                    const activeQ = studentQuestions[studentQuestionIndex];
 
-                    <h3 style={{ marginBottom: '20px', lineHeight: '140%' }}>{studentQuestions[studentQuestionIndex].questionText}</h3>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
-                      {studentQuestions[studentQuestionIndex].options.map((opt: string, idx: number) => {
-                        const isSelected = selectedAnswers[studentQuestionIndex] === idx;
-                        return (
-                          <div 
-                            key={idx} 
-                            onClick={() => setSelectedAnswers({ ...selectedAnswers, [studentQuestionIndex]: idx })}
-                            style={{ 
-                              padding: '16px', 
-                              borderRadius: '10px', 
-                              border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border-color)', 
-                              background: isSelected ? 'rgba(59, 130, 246, 0.05)' : 'rgba(255,255,255,0.01)',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '12px',
-                              transition: 'all 0.2s ease'
-                            }}
-                          >
-                            <div style={{ 
-                              width: '20px', 
-                              height: '20px', 
-                              borderRadius: '50%', 
-                              border: '2px solid ' + (isSelected ? 'var(--primary)' : 'var(--text-muted)'),
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center'
-                            }}>
-                              {isSelected && <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--primary)' }}></div>}
-                            </div>
-                            <span style={{ fontSize: '0.95rem' }}>{opt}</span>
+                    if (isCodingRound) {
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                            <span>Question {studentQuestionIndex + 1} of {studentQuestions.length}</span>
+                            <span>Topic: {activeQ.topic || 'Programming'}</span>
                           </div>
-                        );
-                      })}
-                    </div>
 
-                    {/* Navigation footer */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <button 
-                        className="btn-secondary" 
-                        disabled={studentQuestionIndex === 0}
-                        onClick={() => setStudentQuestionIndex(prev => prev - 1)}
-                      >
-                        Previous Question
-                      </button>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', minHeight: '450px' }}>
+                            {/* Left Panel: Problem Statement */}
+                            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px', background: 'rgba(255,255,255,0.01)', overflowY: 'auto', maxHeight: '500px' }}>
+                              <h3 style={{ margin: 0, color: 'var(--primary)' }}>{activeQ.title || 'Coding Challenge'}</h3>
+                              <div style={{ fontSize: '0.9rem', lineHeight: '1.5', whiteSpace: 'pre-wrap', color: 'var(--text-main)' }}>
+                                {activeQ.questionText}
+                              </div>
+                              
+                              {activeQ.sampleInput && (
+                                <div style={{ marginTop: '12px' }}>
+                                  <strong style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Sample Input:</strong>
+                                  <pre style={{ background: '#090d16', padding: '10px', borderRadius: '6px', fontSize: '0.8rem', marginTop: '4px', overflowX: 'auto', fontFamily: 'monospace' }}>
+                                    {activeQ.sampleInput}
+                                  </pre>
+                                </div>
+                              )}
+                              
+                              {activeQ.sampleOutput && (
+                                <div>
+                                  <strong style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Sample Output:</strong>
+                                  <pre style={{ background: '#090d16', padding: '10px', borderRadius: '6px', fontSize: '0.8rem', marginTop: '4px', overflowX: 'auto', fontFamily: 'monospace' }}>
+                                    {activeQ.sampleOutput}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
 
-                      {studentQuestionIndex < studentQuestions.length - 1 ? (
-                        <button 
-                          className="btn-primary" 
-                          onClick={() => setStudentQuestionIndex(prev => prev + 1)}
-                        >
-                          Next Question
-                        </button>
-                      ) : (
-                        <button 
-                          className="btn-primary" 
-                          style={{ background: 'var(--success)' }}
-                          onClick={handleStudentSubmit}
-                        >
-                          Submit Assessment
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                            {/* Right Panel: Code Editor & Console */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                              {/* Editor Toolbar */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <select 
+                                  className="form-control" 
+                                  style={{ width: '150px', padding: '6px 12px', fontSize: '0.85rem' }} 
+                                  value={codingLanguages[studentQuestionIndex] || 'javascript'} 
+                                  onChange={(e) => setCodingLanguages({ ...codingLanguages, [studentQuestionIndex]: e.target.value })}
+                                >
+                                  <option value="javascript">JavaScript</option>
+                                  <option value="python">Python</option>
+                                  <option value="java">Java</option>
+                                  <option value="cpp">C++</option>
+                                </select>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-saving local buffers</span>
+                              </div>
+
+                              {/* Editor Textarea */}
+                              <textarea 
+                                className="code-editor" 
+                                style={{ 
+                                  flex: 1, 
+                                  minHeight: '220px', 
+                                  background: '#04060a', 
+                                  color: '#e2e8f0', 
+                                  border: '1px solid var(--border-color)', 
+                                  borderRadius: '8px', 
+                                  padding: '16px', 
+                                  fontFamily: 'Consolas, Monaco, monospace', 
+                                  fontSize: '0.9rem', 
+                                  lineHeight: '1.4', 
+                                  resize: 'vertical'
+                                }}
+                                placeholder="// Write your code solution here..." 
+                                value={codingAnswers[studentQuestionIndex] || ''} 
+                                onChange={(e) => setCodingAnswers({ ...codingAnswers, [studentQuestionIndex]: e.target.value })}
+                              />
+
+                              {/* Console Output */}
+                              <div className="glass-panel" style={{ padding: '12px', background: '#090d16', borderRadius: '8px' }}>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '6px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                                  <span>Execution Output Logs</span>
+                                  {isCodingRunning && <span style={{ color: 'var(--primary)', animation: 'pulse 1.5s infinite' }}>Compiling...</span>}
+                                </div>
+                                <pre style={{ 
+                                  maxHeight: '130px', 
+                                  overflowY: 'auto', 
+                                  fontSize: '0.78rem', 
+                                  color: '#34d399', 
+                                  fontFamily: 'monospace', 
+                                  margin: 0,
+                                  whiteSpace: 'pre-wrap'
+                                }}>
+                                  {(codingLogs[studentQuestionIndex] || []).join('\n')}
+                                </pre>
+                              </div>
+
+                              {/* Execution Button */}
+                              <button 
+                                className="btn-secondary" 
+                                style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontSize: '0.85rem' }} 
+                                onClick={() => runStudentCode(studentQuestionIndex)}
+                                disabled={isCodingRunning}
+                              >
+                                <Play size={14} /> Run Sample Tests
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Navigation footer */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                            <button 
+                              className="btn-secondary" 
+                              disabled={studentQuestionIndex === 0}
+                              onClick={() => setStudentQuestionIndex(prev => prev - 1)}
+                            >
+                              Previous Challenge
+                            </button>
+
+                            {studentQuestionIndex < studentQuestions.length - 1 ? (
+                              <button 
+                                className="btn-primary" 
+                                onClick={() => setStudentQuestionIndex(prev => prev + 1)}
+                              >
+                                Next Challenge
+                              </button>
+                            ) : (
+                              <button 
+                                className="btn-primary" 
+                                style={{ background: 'var(--success)' }}
+                                onClick={handleStudentSubmit}
+                                disabled={isExamSubmitting}
+                              >
+                                {isExamSubmitting ? 'Evaluating Code Solutions...' : 'Submit Assessment'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // Else, Normal MCQ Round layout:
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '12px' }}>
+                          <span>Question {studentQuestionIndex + 1} of {studentQuestions.length}</span>
+                          <span>Topic: {activeQ.topic || 'General'}</span>
+                        </div>
+
+                        <h3 style={{ marginBottom: '20px', lineHeight: '140%' }}>{activeQ.questionText}</h3>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px' }}>
+                          {activeQ.options.map((opt: string, idx: number) => {
+                            const isSelected = selectedAnswers[studentQuestionIndex] === idx;
+                            return (
+                              <div 
+                                key={idx} 
+                                onClick={() => setSelectedAnswers({ ...selectedAnswers, [studentQuestionIndex]: idx })}
+                                style={{ 
+                                  padding: '16px', 
+                                  borderRadius: '10px', 
+                                  border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border-color)', 
+                                  background: isSelected ? 'rgba(59, 130, 246, 0.05)' : 'rgba(255,255,255,0.01)',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '12px',
+                                  transition: 'all 0.2s ease'
+                                }}
+                              >
+                                <div style={{ 
+                                  width: '20px', 
+                                  height: '20px', 
+                                  borderRadius: '50%', 
+                                  border: '2px solid ' + (isSelected ? 'var(--primary)' : 'var(--text-muted)'),
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}>
+                                  {isSelected && <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--primary)' }}></div>}
+                                </div>
+                                <span style={{ fontSize: '0.95rem' }}>{opt}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Navigation footer */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <button 
+                            className="btn-secondary" 
+                            disabled={studentQuestionIndex === 0}
+                            onClick={() => setStudentQuestionIndex(prev => prev - 1)}
+                          >
+                            Previous Question
+                          </button>
+
+                          {studentQuestionIndex < studentQuestions.length - 1 ? (
+                            <button 
+                              className="btn-primary" 
+                              onClick={() => setStudentQuestionIndex(prev => prev + 1)}
+                            >
+                              Next Question
+                            </button>
+                          ) : (
+                            <button 
+                              className="btn-primary" 
+                              style={{ background: 'var(--success)' }}
+                              onClick={handleStudentSubmit}
+                              disabled={isExamSubmitting}
+                            >
+                              {isExamSubmitting ? 'Submitting Answers...' : 'Submit Assessment'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()
                 ) : (
                   <div style={{ textAlign: 'center', padding: '40px' }}>
                     <p style={{ color: 'var(--text-muted)' }}>Loading assessment questions...</p>

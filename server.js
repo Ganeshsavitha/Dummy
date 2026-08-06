@@ -1074,7 +1074,43 @@ app.post("/api/placement/questions/save", async (req, res) => {
 
 // -- Gemini AI Generator & PDF Parser APIs --
 app.post("/api/placement/questions/generate", async (req, res) => {
-  const { subject, count, difficulty } = req.body;
+  const { subject, count, difficulty, type } = req.body;
+  const isCoding = type === 'coding' || (subject && (subject.toLowerCase().includes('programming') || subject.toLowerCase().includes('coding')));
+  
+  if (isCoding) {
+    const prompt = `Generate exactly ${count || 1} programming coding challenge on subject "${subject}" with difficulty level "${difficulty || "Medium"}". 
+    
+    Each coding challenge must have a title, problem description, starter template code (with a standard function to write), and exactly 3 testcases (each testcase has an input string and an output string).
+    
+    Output the response as a raw JSON array matching this schema:
+    [
+      {
+        "questionText": "Problem description here. Describe the task clearly.",
+        "options": [],
+        "correctIndex": 0,
+        "explanation": "Brief explanation of the optimal algorithm",
+        "topic": "Programming",
+        "title": "Title of the challenge",
+        "starterCode": "function solution() {\\n  // Write your code here\\n}",
+        "sampleInput": "Sample Input details",
+        "sampleOutput": "Sample Output details",
+        "testCases": [
+          { "input": "Input 1", "output": "Output 1" },
+          { "input": "Input 2", "output": "Output 2" },
+          { "input": "Input 3", "output": "Output 3" }
+        ]
+      }
+    ]`;
+    try {
+      const responseText = await getAICompletion(prompt, "You are a senior compiler questions generator. Output only JSON array, do not add markdown wrapping tags.", true);
+      const parsed = safeParseJSON(responseText);
+      res.json({ success: true, questions: parsed });
+    } catch (err) {
+      res.status(500).json({ success: false, message: "AI coding question generation failed: " + err.message });
+    }
+    return;
+  }
+
   const isCommunication = subject && subject.toLowerCase() === "communication";
   const subjectText = isCommunication 
     ? "English Communication (specifically focusing on grammar, active/passive voice, tenses, sentence correction, vocabulary, and verbal aptitude)" 
@@ -1103,6 +1139,55 @@ app.post("/api/placement/questions/generate", async (req, res) => {
     res.json({ success: true, questions: parsed });
   } catch (err) {
     res.status(500).json({ success: false, message: "AI question generation failed: " + err.message });
+  }
+});
+
+app.post("/api/evaluate-code", async (req, res) => {
+  const { question, answer, language, testCases } = req.body;
+  if (!answer) {
+    return res.status(400).json({ success: false, message: "Code solution is empty." });
+  }
+
+  const prompt = `Act as a secure execution sandbox and code evaluator. Evaluate the following programming solution in "${language}" for the given problem against the provided test cases.
+
+  Problem description:
+  ${question}
+
+  Student's Code Solution:
+  ${answer}
+
+  Test Cases to evaluate:
+  ${JSON.stringify(testCases || [])}
+
+  Analyze if the code compiles and runs. Test the code logic against each test case input and determine if it output the expected value.
+  Determine the space complexity and time complexity of the solution. Grade the solution out of 10 points.
+  Provide feedback suggestions and a detailed logic review.
+
+  Output the response as a single, raw JSON object matching this schema:
+  {
+    "success": true,
+    "compilationStatus": "Success | Compilation Error | Runtime Error",
+    "errorMessage": "Syntax error message if code fails to compile, otherwise empty string",
+    "testResults": [
+      { "input": "Sample Input", "expected": "Expected Output", "actual": "Actual Output", "status": "PASS | FAIL" }
+    ],
+    "score": 8,
+    "timeComplexity": "O(N)",
+    "spaceComplexity": "O(1)",
+    "suggestions": ["Suggestion 1", "Suggestion 2"],
+    "explanation": "Detailed logic analysis and feedback summary"
+  }`;
+
+  try {
+    const responseText = await getAICompletion(
+      prompt,
+      "You are an expert AI compiler examiner. Evaluate the code and test cases, and output exactly one JSON object. Do not include any markdown format tags.",
+      true
+    );
+    const parsed = safeParseJSON(responseText);
+    res.json({ success: true, feedback: parsed });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "AI code evaluation failed: " + err.message });
   }
 });
 

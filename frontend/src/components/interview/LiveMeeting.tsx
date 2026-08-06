@@ -65,6 +65,13 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
         remoteVideoRef.current.play().catch((err: any) => console.warn("[WebRTC] Play failed on render:", err));
       }
     }
+    if (localVideoRef.current && localStreamRef.current) {
+      if (localVideoRef.current.srcObject !== localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        console.log("[WebRTC] Re-attached local stream to video element on render");
+        localVideoRef.current.play().catch((err: any) => console.warn("[WebRTC] Play failed on render:", err));
+      }
+    }
   });
 
   // Helper to generate a simulated camera/microphone stream when hardware is blocked
@@ -203,6 +210,99 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
   // WebRTC Peer Connection & Signaling Setup
   useEffect(() => {
     let active = true;
+    const iceCandidateQueue: any[] = [];
+
+    const initPeerConnection = () => {
+      if (peerConnectionRef.current) {
+        console.log("[WebRTC] Closing existing RTCPeerConnection before reset...");
+        peerConnectionRef.current.close();
+      }
+
+      console.log("[WebRTC] Creating new RTCPeerConnection...");
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          {
+            urls: [
+              'turn:openrelay.metered.ca:80',
+              'turn:openrelay.metered.ca:443',
+              'turn:openrelay.metered.ca:443?transport=tcp'
+            ],
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          }
+        ]
+      });
+      peerConnectionRef.current = pc;
+
+      // Add local stream tracks to this connection
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          pc.addTrack(track, localStreamRef.current!);
+        });
+      }
+
+      // Connection State logs
+      pc.onconnectionstatechange = () => {
+        console.log(`[WebRTC State] connectionState: ${pc.connectionState}`);
+      };
+      pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC State] iceConnectionState: ${pc.iceConnectionState}`);
+      };
+      pc.onsignalingstatechange = () => {
+        console.log(`[WebRTC State] signalingState: ${pc.signalingState}`);
+      };
+
+      // Emit local ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log("[WebRTC] Emitting ICE candidate to signaling server");
+          socket.emit("ice-candidate", {
+            meetingId: interview.meetingId,
+            candidate: event.candidate.toJSON()
+          });
+        }
+      };
+
+      // Handle remote incoming tracks
+      pc.ontrack = (event) => {
+        console.log("[WebRTC] Received remote stream track event:", event.track.kind);
+        if (event.streams && event.streams[0]) {
+          remoteStreamInstanceRef.current = event.streams[0];
+        } else {
+          if (!remoteStreamInstanceRef.current) {
+            remoteStreamInstanceRef.current = new MediaStream();
+          }
+          remoteStreamInstanceRef.current.addTrack(event.track);
+        }
+        setRemoteStreamActive(true);
+        
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStreamInstanceRef.current;
+          remoteVideoRef.current.play().catch((err: any) => {
+            console.warn("[WebRTC] Play failed (browser autoplay restrictions):", err);
+          });
+        }
+      };
+
+      return pc;
+    };
+
+    const processQueuedIceCandidates = async (pc: RTCPeerConnection) => {
+      console.log(`[WebRTC] Processing ${iceCandidateQueue.length} queued ICE candidates...`);
+      while (iceCandidateQueue.length > 0) {
+        const candidateData = iceCandidateQueue.shift();
+        if (candidateData) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidateData));
+            console.log("[WebRTC] Applied queued ICE candidate successfully");
+          } catch (e) {
+            console.error("[WebRTC] Failed to apply queued ICE candidate:", e);
+          }
+        }
+      }
+    };
 
     const setupRTC = async () => {
       try {
@@ -211,8 +311,15 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
         try {
           stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         } catch (err) {
-          console.warn("[WebRTC] getUserMedia failed. Falling back to simulated stream. Error:", err);
-          stream = createSimulatedStream();
+          console.warn("[WebRTC] First getUserMedia attempt failed. Retrying in 1000ms due to device lock... Error:", err);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            console.log("[WebRTC] getUserMedia retry succeeded!");
+          } catch (retryErr) {
+            console.warn("[WebRTC] getUserMedia retry failed. Falling back to simulated stream. Error:", retryErr);
+            stream = createSimulatedStream();
+          }
         }
         
         if (!active) {
@@ -225,95 +332,20 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           localVideoRef.current.srcObject = stream;
         }
 
-        // Initialize Peer Connection with Public Google STUN servers and Open Relay TURN servers
-        console.log("[WebRTC] Creating RTCPeerConnection...");
-        const pc = new RTCPeerConnection({
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            {
-              urls: [
-                'turn:openrelay.metered.ca:80',
-                'turn:openrelay.metered.ca:443',
-                'turn:openrelay.metered.ca:443?transport=tcp'
-              ],
-              username: 'openrelayproject',
-              credential: 'openrelayproject'
-            }
-          ]
-        });
-        peerConnectionRef.current = pc;
+        // Initialize Peer Connection
+        const pc = initPeerConnection();
 
-        // Add Local tracks
-        stream.getTracks().forEach(track => {
-          pc.addTrack(track, stream);
-        });
-
-        // Debug state listeners
-        pc.onconnectionstatechange = () => {
-          console.log(`[WebRTC State] connectionState: ${pc.connectionState}`);
-        };
-        pc.oniceconnectionstatechange = () => {
-          console.log(`[WebRTC State] iceConnectionState: ${pc.iceConnectionState}`);
-        };
-        pc.onsignalingstatechange = () => {
-          console.log(`[WebRTC State] signalingState: ${pc.signalingState}`);
-        };
-
-        const iceCandidateQueue: any[] = [];
-        const processQueuedIceCandidates = async () => {
-          console.log(`[WebRTC] Processing ${iceCandidateQueue.length} queued ICE candidates...`);
-          while (iceCandidateQueue.length > 0) {
-            const candidateData = iceCandidateQueue.shift();
-            if (candidateData) {
-              try {
-                await pc.addIceCandidate(new RTCIceCandidate(candidateData));
-                console.log("[WebRTC] Applied queued ICE candidate successfully");
-              } catch (e) {
-                console.error("[WebRTC] Failed to apply queued ICE candidate:", e);
-              }
-            }
-          }
-        };
-
-        // ICE candidate callback - explicitly map fields for serialization
-        pc.onicecandidate = (event) => {
-          if (event.candidate) {
-            console.log("[WebRTC] Emitting ICE candidate to signaling server");
-            socket.emit("ice-candidate", {
-              meetingId: interview.meetingId,
-              candidate: event.candidate.toJSON()
-            });
-          }
-        };
-
-        // Incoming track listener
-        pc.ontrack = (event) => {
-          console.log("[WebRTC] Received remote stream track event:", event.track.kind);
-          if (!remoteStreamInstanceRef.current) {
-            remoteStreamInstanceRef.current = new MediaStream();
-          }
-          remoteStreamInstanceRef.current.addTrack(event.track);
-          setRemoteStreamActive(true);
-          
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = remoteStreamInstanceRef.current;
-            remoteVideoRef.current.play().catch((err: any) => {
-              console.warn("[WebRTC] Play failed (browser autoplay restrictions):", err);
-            });
-          }
-        };
-
-        // Signaling handlers - role-separated (HR is caller, Student is responder)
+        // Setup Socket event listeners
         if (userRole === 'hr') {
           // HR joined room, check if student is already in the room
           socket.on("join-ack", async (data: any) => {
             console.log(`[WebRTC] HR joined room. Active participants count: ${data.numClients}`);
             if (data.numClients > 1) {
-              console.log("[WebRTC] Student is already present. HR initiating offer...");
+              console.log("[WebRTC] Student is already present. HR initiating fresh offer...");
+              const freshPc = initPeerConnection();
               try {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
+                const offer = await freshPc.createOffer();
+                await freshPc.setLocalDescription(offer);
                 socket.emit("offer", { meetingId: interview.meetingId, offer: { type: offer.type, sdp: offer.sdp } });
               } catch (err) {
                 console.error("[WebRTC] Failed to create offer on join-ack:", err);
@@ -323,10 +355,11 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
 
           // Student joined room later
           socket.on("user-joined", async (data: any) => {
-            console.log(`[WebRTC Signaling] Student joined: ${data.userId}. HR initiating offer...`);
+            console.log(`[WebRTC Signaling] Student joined: ${data.userId}. HR initiating fresh offer...`);
+            const freshPc = initPeerConnection();
             try {
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
+              const offer = await freshPc.createOffer();
+              await freshPc.setLocalDescription(offer);
               socket.emit("offer", { meetingId: interview.meetingId, offer: { type: offer.type, sdp: offer.sdp } });
             } catch (err) {
               console.error("[WebRTC] Failed to create offer on user-joined:", err);
@@ -337,8 +370,10 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           socket.on("answer", async (data: any) => {
             console.log("[WebRTC Signaling] HR received answer. Resolving remote description...");
             try {
-              await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-              await processQueuedIceCandidates();
+              if (peerConnectionRef.current) {
+                await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+                await processQueuedIceCandidates(peerConnectionRef.current);
+              }
             } catch (err) {
               console.error("[WebRTC] Failed to handle answer:", err);
             }
@@ -346,12 +381,13 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
         } else {
           // Student receives offer from HR
           socket.on("offer", async (data: any) => {
-            console.log("[WebRTC Signaling] Student received offer. Creating response answer...");
+            console.log("[WebRTC Signaling] Student received offer. Resetting connection and creating response answer...");
+            const freshPc = initPeerConnection();
             try {
-              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-              await processQueuedIceCandidates();
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
+              await freshPc.setRemoteDescription(new RTCSessionDescription(data.offer));
+              await processQueuedIceCandidates(freshPc);
+              const answer = await freshPc.createAnswer();
+              await freshPc.setLocalDescription(answer);
               socket.emit("answer", { meetingId: interview.meetingId, answer: { type: answer.type, sdp: answer.sdp } });
             } catch (err) {
               console.error("[WebRTC] Failed to handle offer:", err);
@@ -362,9 +398,9 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
         socket.on("ice-candidate", async (data: any) => {
           console.log("[WebRTC Signaling] Received remote ICE candidate.");
           try {
-            if (data.candidate) {
-              if (pc.remoteDescription) {
-                await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            if (data.candidate && peerConnectionRef.current) {
+              if (peerConnectionRef.current.remoteDescription) {
+                await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
                 console.log("[WebRTC] Applied remote ICE candidate");
               } else {
                 console.log("[WebRTC] Remote description not set yet. Queueing ICE candidate.");
@@ -383,6 +419,9 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
             remoteVideoRef.current.srcObject = null;
           }
           setRemoteStreamActive(false);
+          if (peerConnectionRef.current) {
+            peerConnectionRef.current.close();
+          }
         });
 
         socket.on("chat-message", (data: any) => {
@@ -557,7 +596,8 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'center',
-              boxShadow: '0 4px 10px rgba(0,0,0,0.5)'
+              boxShadow: '0 4px 10px rgba(0,0,0,0.5)',
+              zIndex: 10
             }}
           >
             <video 

@@ -279,6 +279,18 @@ async function initDb() {
     // Column already exists or table doesn't exist yet
   }
 
+  // Migrations for placement_questions table (coding sandbox fields)
+  try {
+    await dbRun("ALTER TABLE placement_questions ADD COLUMN title TEXT");
+    await dbRun("ALTER TABLE placement_questions ADD COLUMN starter_code TEXT");
+    await dbRun("ALTER TABLE placement_questions ADD COLUMN sample_input TEXT");
+    await dbRun("ALTER TABLE placement_questions ADD COLUMN sample_output TEXT");
+    await dbRun("ALTER TABLE placement_questions ADD COLUMN test_cases TEXT");
+    console.log("Migration: Added coding columns to placement_questions successfully.");
+  } catch (err) {
+    // Columns already exist
+  }
+
   // Seed default users if users table is empty
   const usersCount = await dbGet("SELECT COUNT(*) as count FROM users");
   if (usersCount.count === 0) {
@@ -964,6 +976,14 @@ async function getPlacementQuestions(driveId, roundId) {
     } catch (e) {
       q.options = [];
     }
+    try {
+      q.testCases = JSON.parse(q.test_cases || '[]');
+    } catch (e) {
+      q.testCases = [];
+    }
+    q.starterCode = q.starter_code || "";
+    q.sampleInput = q.sample_input || "";
+    q.sampleOutput = q.sample_output || "";
     return q;
   });
 }
@@ -975,9 +995,18 @@ async function savePlacementQuestions(driveId, roundId, questions) {
   for (const q of questions) {
     const id = "pq_" + Date.now() + Math.random().toString(36).substring(7);
     await dbRun(
-      `INSERT INTO placement_questions (id, drive_id, round_id, question_text, options, correct_index, explanation, subject, topic, difficulty) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, driveId, roundId, q.questionText, JSON.stringify(q.options || []), q.correctIndex !== undefined ? parseInt(q.correctIndex) : 0, q.explanation || "", q.subject || "General", q.topic || "Core", q.difficulty || "Medium"]
+      `INSERT INTO placement_questions (
+        id, drive_id, round_id, question_text, options, correct_index, 
+        explanation, subject, topic, difficulty, title, starter_code, 
+        sample_input, sample_output, test_cases
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, driveId, roundId, q.questionText, JSON.stringify(q.options || []), 
+        q.correctIndex !== undefined ? parseInt(q.correctIndex) : 0, q.explanation || "", 
+        q.subject || "General", q.topic || "Core", q.difficulty || "Medium",
+        q.title || "", q.starterCode || "", q.sampleInput || "", q.sampleOutput || "",
+        JSON.stringify(q.testCases || [])
+      ]
     );
   }
 }
