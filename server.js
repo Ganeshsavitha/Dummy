@@ -16,9 +16,11 @@ if (!JWT_SECRET) {
 
 // Import MongoDB/Mongoose database operations
 const db = require("./db");
-const dbReady = db.initDb().then(() => {
+const dbReady = db.initDb();
+dbReady.then(() => {
   console.log("Database initialized and seeded. 🚀");
-}).catch(err => {
+});
+dbReady.catch(err => {
   console.error("Database initialization failed:", err);
 });
 
@@ -291,14 +293,23 @@ async function getAICompletion(prompt, systemPrompt = "", isJson = false) {
     }
     messages.push({ role: "user", content: prompt });
 
-    const completion = await runGroqRequest(client => withTimeout(client.chat.completions.create({
-      messages: messages,
-      model: GROQ_MODEL,
-      response_format: isJson ? { type: "json_object" } : undefined,
-      temperature: 0.7,
-      max_tokens: 1500
-    }), AI_TIMEOUT_MS, "Groq request"));
-    return completion.choices[0].message.content;
+    try {
+      const completion = await runGroqRequest(client => withTimeout(client.chat.completions.create({
+        messages: messages,
+        model: GROQ_MODEL,
+        response_format: isJson ? { type: "json_object" } : undefined,
+        temperature: 0.7,
+        max_tokens: 1500
+      }), AI_TIMEOUT_MS, "Groq request"));
+      return completion.choices[0].message.content;
+    } catch (error) {
+      const failedGeneration = error?.error?.error?.failed_generation || error?.error?.failed_generation;
+      if (isJson && typeof failedGeneration === "string" && failedGeneration.trim()) {
+        console.warn("Groq JSON validation failed; recovering the generated JSON payload.");
+        return failedGeneration;
+      }
+      throw error;
+    }
   }
 
   throw new Error("No AI API Keys are configured. Please check your .env settings.");
@@ -320,22 +331,22 @@ async function getGroqJSON(prompt, systemPrompt) {
 
 function safeParseJSON(str) {
   if (!str) return [];
-  try {
-    const cleaned = str.replace(/```json|```/g, "").trim();
-    return JSON.parse(cleaned);
-  } catch (e) {
-    console.error("Failed to parse JSON:", str, e);
-    // Try to extract JSON array using regex if LLM returned text around it
-    try {
-      const match = str.match(/\[\s*\{[\s\S]*\}\s*\]/);
-      if (match) {
-        return JSON.parse(match[0]);
-      }
-    } catch (innerErr) {
-      console.error("Secondary regex JSON parse failed:", innerErr);
+  const cleaned = String(str).replace(/```json|```/g, "").trim();
+  const candidates = [cleaned];
+  const firstObject = cleaned.indexOf("{");
+  const firstArray = cleaned.indexOf("[");
+  const start = firstArray >= 0 && (firstObject < 0 || firstArray < firstObject) ? firstArray : firstObject;
+  if (start >= 0) candidates.push(cleaned.slice(start));
+
+  for (const original of candidates) {
+    let candidate = original;
+    for (let attempt = 0; attempt < 4 && candidate; attempt += 1) {
+      try { return JSON.parse(candidate); } catch {}
+      candidate = candidate.replace(/[}\]]\s*$/, "").trimEnd();
     }
-    return [];
   }
+  console.error("Failed to parse AI JSON response.");
+  return [];
 }
 
 // ========================================================

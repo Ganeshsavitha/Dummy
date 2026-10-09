@@ -7,3 +7,4 @@ frontend/dist/
 npm-debug.log*
 .gemini/
 .server.*.log
+.chrome-*/
