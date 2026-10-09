@@ -41,6 +41,7 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const remoteStreamInstanceRef = useRef<MediaStream | null>(null);
 
@@ -467,6 +468,10 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => track.stop());
+        screenStreamRef.current = null;
+      }
 
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
@@ -500,6 +505,46 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
       });
     }
   }, [micActive]);
+
+  const stopScreenShare = async () => {
+    const screenStream = screenStreamRef.current;
+    const screenTrack = screenStream?.getVideoTracks()[0];
+    if (screenTrack) screenTrack.onended = null;
+
+    const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null;
+    const videoSender = peerConnectionRef.current?.getSenders().find(sender => sender.track?.kind === 'video');
+    if (videoSender && cameraTrack) await videoSender.replaceTrack(cameraTrack);
+
+    screenStream?.getTracks().forEach(track => track.stop());
+    screenStreamRef.current = null;
+    if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+    setScreenSharing(false);
+  };
+
+  const toggleScreenShare = async () => {
+    if (screenSharing) {
+      await stopScreenShare();
+      return;
+    }
+    try {
+      if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('Screen sharing is not supported in this browser.');
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const screenTrack = displayStream.getVideoTracks()[0];
+      const videoSender = peerConnectionRef.current?.getSenders().find(sender => sender.track?.kind === 'video');
+      if (!screenTrack || !videoSender) {
+        displayStream.getTracks().forEach(track => track.stop());
+        throw new Error('Video call is not connected yet.');
+      }
+      await videoSender.replaceTrack(screenTrack);
+      screenStreamRef.current = displayStream;
+      screenTrack.onended = () => { void stopScreenShare(); };
+      if (localVideoRef.current) localVideoRef.current.srcObject = displayStream;
+      setScreenSharing(true);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotAllowedError') return;
+      alert(error instanceof Error ? error.message : 'Unable to share the screen.');
+    }
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -723,7 +768,7 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
                 borderColor: screenSharing ? 'var(--primary)' : 'var(--border-color)',
                 color: screenSharing ? 'var(--primary)' : 'var(--text-main)'
               }}
-              onClick={() => setScreenSharing(!screenSharing)}
+              onClick={() => { void toggleScreenShare(); }}
             >
               <Monitor size={16} /> {screenSharing ? 'Stop Sharing' : 'Share Screen'}
             </button>
