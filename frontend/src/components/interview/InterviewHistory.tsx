@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Calendar, Clock, Star, MessageSquare, Award, TrendingUp, CheckCircle, XCircle, AlertCircle, Eye, ArrowLeft } from 'lucide-react';
-import { mockFeedbackList } from './mockData';
 import type { Interview, Feedback } from './mockData';
 
 interface InterviewHistoryProps {
@@ -9,10 +8,39 @@ interface InterviewHistoryProps {
   onBack?: () => void;
 }
 
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:3000'
+  : window.location.origin;
+
 export default function InterviewHistory({ interviews, userRole, onBack }: InterviewHistoryProps) {
   const [selectedInterview, setSelectedInterview] = useState<Interview | null>(null);
+  const [feedbackList, setFeedbackList] = useState<Record<string, Feedback>>({});
 
   const completed = interviews.filter(i => i.status === 'completed');
+
+  useEffect(() => {
+    let active = true;
+    Promise.all(completed.map(async interview => {
+      const response = await fetch(`${API_BASE}/api/placement/interviews/${interview.id}/feedback`);
+      const data = await response.json();
+      if (!data.success || !data.feedback) return null;
+      const item = data.feedback;
+      return [interview.id, {
+        interviewId: item.interviewId || item.interview_id,
+        communicationScore: item.communicationScore ?? item.communication_score,
+        technicalScore: item.technicalScore ?? item.technical_score,
+        confidenceScore: item.confidenceScore ?? item.confidence_score,
+        problemSolvingScore: item.problemSolvingScore ?? item.problem_solving_score,
+        overallRating: item.overallRating ?? item.overall_rating,
+        comments: item.comments,
+        result: item.result
+      } as Feedback] as const;
+    })).then(items => {
+      if (!active) return;
+      setFeedbackList(Object.fromEntries(items.filter((item): item is readonly [string, Feedback] => item !== null)));
+    }).catch(error => console.error('Unable to load interview feedback', error));
+    return () => { active = false; };
+  }, [interviews]);
 
   const getResultBadge = (result: 'selected' | 'rejected' | 'hold' | undefined) => {
     if (!result) return <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)', padding: '4px 10px', borderRadius: '20px' }}>Pending</span>;
@@ -27,7 +55,7 @@ export default function InterviewHistory({ interviews, userRole, onBack }: Inter
   };
 
   const getFeedbackDetails = (interviewId: string) => {
-    return mockFeedbackList[interviewId];
+    return feedbackList[interviewId];
   };
 
   if (selectedInterview) {

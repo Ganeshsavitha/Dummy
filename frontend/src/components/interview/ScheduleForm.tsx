@@ -17,7 +17,7 @@ export default function ScheduleForm({ onBack, onScheduleAdded }: ScheduleFormPr
   const [meetingId, setMeetingId] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
 
-  // Fetch real students list from SQLite
+  // Fetch the real student list from MongoDB through the API
   useEffect(() => {
     const fetchStudents = async () => {
       try {

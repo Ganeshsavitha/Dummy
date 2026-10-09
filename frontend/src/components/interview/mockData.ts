@@ -22,6 +22,8 @@ export interface Interview {
   duration: number;
   type: string;
   status: 'scheduled' | 'waiting' | 'ongoing' | 'completed' | 'cancelled';
+  invitationStatus?: 'pending' | 'accepted' | 'declined';
+  invitationRespondedAt?: string;
   meetingId: string;
 }
 

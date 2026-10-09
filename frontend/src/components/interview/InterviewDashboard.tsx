@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock, Video, User, Plus, Award, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, Video, Plus, AlertCircle } from 'lucide-react';
 import type { Interview } from './mockData';
 
 interface InterviewDashboardProps {
@@ -101,6 +101,9 @@ export default function InterviewDashboard({ interviews, onScheduleClick, onJoin
                       <span style={{ fontSize: '0.75rem', fontWeight: 'normal', background: 'rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: '20px', color: 'var(--text-muted)' }}>
                         {interview.type} Round
                       </span>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', color: interview.invitationStatus === 'accepted' ? 'var(--success)' : interview.invitationStatus === 'declined' ? 'var(--danger)' : 'var(--warning)', background: 'rgba(255,255,255,0.06)' }}>
+                        Invite: {interview.invitationStatus || 'pending'}
+                      </span>
                     </div>
                     <div style={{ display: 'flex', gap: '16px', marginTop: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -127,8 +130,9 @@ export default function InterviewDashboard({ interviews, onScheduleClick, onJoin
                     className="btn-primary" 
                     style={{ padding: '8px 16px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
                     onClick={() => onJoinCall(interview)}
+                    disabled={interview.invitationStatus !== 'accepted'}
                   >
-                    <Video size={14} /> Join Meeting
+                    <Video size={14} /> {interview.invitationStatus === 'accepted' ? 'Join Meeting' : interview.invitationStatus === 'declined' ? 'Invitation Declined' : 'Awaiting Acceptance'}
                   </button>
                 </div>
               </div>

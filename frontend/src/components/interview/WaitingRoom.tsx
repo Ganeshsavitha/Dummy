@@ -662,9 +662,11 @@ export default function WaitingRoom({ interview, userRole, onBack, onEnterCall }
                   <RefreshCw size={24} className="spin" />
                 </div>
                 <div>
-                  <h4 style={{ margin: '0 0 6px 0', fontSize: '1.1rem' }}>Waiting for HR Admission</h4>
+                  <h4 style={{ margin: '0 0 6px 0', fontSize: '1.1rem' }}>{interview.type.toLowerCase() === 'ai hr' ? 'AI HR Ready' : 'Waiting for HR Admission'}</h4>
                   <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    You are in the lobby for **{interview.type} Round** with **{interview.hrName}**. The interviewer has been notified.
+                    {interview.type.toLowerCase() === 'ai hr'
+                      ? 'Your camera video stays in this browser and is not recorded. The answer transcript and final feedback will be saved.'
+                      : `You are in the lobby for ${interview.type} Round with ${interview.hrName}. The interviewer has been notified.`}
                   </p>
                 </div>
                 {/* For mock testing, allow student to click to enter directly */}
@@ -676,7 +678,7 @@ export default function WaitingRoom({ interview, userRole, onBack, onEnterCall }
                     onEnterCall();
                   }}
                 >
-                  <Play size={16} /> Enter Meeting (Mock Direct Admission)
+                  <Play size={16} /> {interview.type.toLowerCase() === 'ai hr' ? 'Start AI HR Interview' : 'Enter Meeting'}
                 </button>
               </>
             ) : (

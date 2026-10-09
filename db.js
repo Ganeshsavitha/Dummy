@@ -1,1273 +1,338 @@
-const sqlite3 = require("sqlite3").verbose();
-const path = require("path");
+const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
-const fs = require("fs");
+const crypto = require("crypto");
 
-const dbPath = process.env.DATABASE_PATH || path.join(__dirname, "hiregrad.db");
+const generateUUID = () => crypto.randomUUID();
+const schemaOptions = { versionKey: false, timestamps: false };
 
-// Ensure target database directory exists (useful for Render persistent disk mounts)
-const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+const User = mongoose.model("User", new mongoose.Schema({
+  id: { type: String, required: true, unique: true, index: true },
+  fullName: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
+  password: { type: String, required: true, select: false },
+  role: { type: String, enum: ["student", "hr", "admin"], required: true, index: true },
+  createdAt: { type: Date, default: Date.now },
+  targetRole: String,
+  streak: { type: Number, default: 0 },
+  lastActive: Date,
+  cgpa: { type: Number, min: 0, max: 10 },
+  department: String,
+  skills: { type: [String], default: [] },
+  companyName: String
+}, schemaOptions));
+
+const Result = mongoose.model("Result", new mongoose.Schema({
+  id: { type: String, default: generateUUID, unique: true }, username: { type: String, index: true },
+  type: String, subject: String, score: Number, total: Number, date: { type: Date, default: Date.now }
+}, schemaOptions));
+const Bookmark = mongoose.model("Bookmark", new mongoose.Schema({
+  id: { type: String, default: generateUUID, unique: true }, username: { type: String, index: true },
+  question: String, subject: String, type: String
+}, schemaOptions));
+const Note = mongoose.model("Note", new mongoose.Schema({
+  id: { type: String, default: generateUUID, unique: true }, username: { type: String, index: true },
+  title: String, content: String, date: { type: Date, default: Date.now }
+}, schemaOptions));
+const Setting = mongoose.model("RecruitmentSetting", new mongoose.Schema({
+  key: { type: String, unique: true }, value: mongoose.Schema.Types.Mixed
+}, schemaOptions));
+const RecruitmentRound = mongoose.model("RecruitmentRound", new mongoose.Schema({
+  id: { type: String, required: true, unique: true }, name: String, passingPercentage: Number,
+  minScore: Number, negativeMarking: Boolean, timeLimit: Number, mandatory: Boolean,
+  weightage: Number, type: String, subject: String
+}, schemaOptions));
+const CandidateStatus = mongoose.model("CandidateStatus", new mongoose.Schema({
+  username: { type: String, required: true }, roundId: { type: String, required: true }, status: String,
+  score: Number, percentage: Number, date: { type: Date, default: Date.now }
+}, schemaOptions).index({ username: 1, roundId: 1 }, { unique: true }));
+const PlacementCompany = mongoose.model("PlacementCompany", new mongoose.Schema({
+  username: { type: String, required: true, unique: true }, companyName: String
+}, schemaOptions));
+const PlacementDrive = mongoose.model("PlacementDrive", new mongoose.Schema({
+  id: { type: String, required: true, unique: true }, companyUsername: { type: String, index: true },
+  name: String, status: { type: String, default: "Draft", index: true }, autoShortlist: Boolean,
+  jobRole: String, packageOffered: String, assessmentDate: String, assessmentTime: String,
+  duration: Number, eligibleDepts: { type: [String], default: [] }, minCgpa: Number,
+  eligibleBatch: String, maxStudentsLimit: Number, rounds: { type: [mongoose.Schema.Types.Mixed], default: [] }
+}, schemaOptions));
+const PlacementQuestion = mongoose.model("PlacementQuestion", new mongoose.Schema({
+  id: { type: String, default: generateUUID, unique: true }, driveId: { type: String, required: true },
+  roundId: { type: String, required: true }, questionText: String, options: { type: [String], default: [] },
+  correctIndex: Number, explanation: String, subject: String, topic: String, difficulty: String,
+  title: String, starterCode: String, sampleInput: String, sampleOutput: String,
+  testCases: { type: [mongoose.Schema.Types.Mixed], default: [] }
+}, schemaOptions).index({ driveId: 1, roundId: 1 }));
+const PlacementProgress = mongoose.model("PlacementProgress", new mongoose.Schema({
+  username: { type: String, required: true }, driveId: { type: String, required: true },
+  currentRoundIndex: Number, status: String, scores: { type: Map, of: Number, default: {} }
+}, schemaOptions).index({ username: 1, driveId: 1 }, { unique: true }));
+const PlacementRegistration = mongoose.model("PlacementRegistration", new mongoose.Schema({
+  username: { type: String, required: true }, driveId: { type: String, required: true }, date: { type: Date, default: Date.now }
+}, schemaOptions).index({ username: 1, driveId: 1 }, { unique: true }));
+const Interview = mongoose.model("Interview", new mongoose.Schema({
+  id: { type: String, default: generateUUID, unique: true }, meetingId: { type: String, required: true, unique: true },
+  hrId: { type: String, required: true, index: true }, studentId: { type: String, required: true, index: true },
+  scheduledDate: { type: String, required: true }, scheduledTime: { type: String, required: true },
+  duration: { type: Number, required: true }, type: { type: String, required: true },
+  status: { type: String, enum: ["scheduled", "waiting", "ongoing", "completed", "cancelled"], default: "scheduled" },
+  meetingStatus: { type: String, enum: ["scheduled", "waiting", "ongoing", "completed", "cancelled"], default: "scheduled" },
+  invitationStatus: { type: String, enum: ["pending", "accepted", "declined"], default: "pending", index: true },
+  invitationRespondedAt: Date,
+  joinToken: { type: String, select: false }, createdAt: { type: Date, default: Date.now }
+}, schemaOptions));
+const InterviewFeedback = mongoose.model("InterviewFeedback", new mongoose.Schema({
+  id: { type: String, default: generateUUID, unique: true }, interviewId: { type: String, required: true, unique: true },
+  communicationScore: { type: Number, min: 1, max: 10 }, technicalScore: { type: Number, min: 1, max: 10 },
+  confidenceScore: { type: Number, min: 1, max: 10 }, problemSolvingScore: { type: Number, min: 1, max: 10 },
+  overallRating: Number, comments: String, result: { type: String, enum: ["selected", "rejected", "hold"] },
+  submittedAt: { type: Date, default: Date.now }
+}, schemaOptions));
+const InterviewChat = mongoose.model("InterviewChat", new mongoose.Schema({
+  id: { type: String, default: generateUUID, unique: true }, interviewId: { type: String, required: true, index: true },
+  senderId: { type: String, required: true }, message: { type: String, required: true, maxlength: 2000 },
+  timestamp: { type: Date, default: Date.now }
+}, schemaOptions));
+const InterviewHistory = mongoose.model("InterviewHistory", new mongoose.Schema({
+  id: { type: String, default: generateUUID, unique: true }, interviewId: { type: String, required: true, index: true },
+  studentJoinedAt: Date, hrJoinedAt: Date, endedAt: Date, durationSeconds: Number
+}, schemaOptions));
+const AIInterviewSession = mongoose.model("AIInterviewSession", new mongoose.Schema({
+  id: { type: String, default: generateUUID, unique: true },
+  interviewId: { type: String, required: true, unique: true, index: true },
+  studentId: { type: String, required: true, index: true },
+  status: { type: String, enum: ["active", "completed"], default: "active" },
+  questionCount: { type: Number, default: 0 },
+  currentQuestion: String,
+  messages: { type: [{ speaker: { type: String, enum: ["ai", "candidate"] }, text: String, createdAt: { type: Date, default: Date.now } }], default: [] },
+  evaluation: mongoose.Schema.Types.Mixed,
+  startedAt: { type: Date, default: Date.now },
+  completedAt: Date
+}, schemaOptions));
+
+function userDto(user, includePassword = false) {
+  if (!user) return null;
+  const u = user.toObject ? user.toObject() : user;
+  const dto = { id: u.id, full_name: u.fullName, email: u.email, role: u.role, created_at: u.createdAt,
+    target_role: u.targetRole, streak: u.streak, last_active: u.lastActive, cgpa: u.cgpa,
+    department: u.department, skills: JSON.stringify(u.skills || []), company_name: u.companyName };
+  if (includePassword) dto.password = u.password;
+  return dto;
 }
-
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error("Failed to connect to SQLite database:", err.message);
-  } else {
-    console.log("Connected to SQLite database successfully. ✅");
-  }
-});
-
-
-// Helper function to run query
-function dbRun(query, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(query, params, function (err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
-  });
+function roundDto(r) {
+  if (!r) return null; const x = r.toObject ? r.toObject() : r;
+  return { id: x.id, name: x.name, passing_percentage: x.passingPercentage, min_score: x.minScore,
+    negative_marking: x.negativeMarking ? 1 : 0, time_limit: x.timeLimit, mandatory: x.mandatory ? 1 : 0,
+    weightage: x.weightage, type: x.type, subject: x.subject };
 }
-
-// Helper function to get single row
-function dbGet(query, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(query, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+function statusDto(s) {
+  const x = s.toObject ? s.toObject() : s;
+  return { username: x.username, round_id: x.roundId, status: x.status, score: x.score, percentage: x.percentage, date: x.date };
 }
-
-// Helper function to get all rows
-function dbAll(query, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(query, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
+function progressDto(p) {
+  const x = p.toObject ? p.toObject({ flattenMaps: true }) : p;
+  return { username: x.username, driveId: x.driveId, drive_id: x.driveId, currentRoundIndex: x.currentRoundIndex,
+    current_round_index: x.currentRoundIndex, status: x.status, scores: x.scores || {} };
 }
-
-// UUID generator
-function generateUUID() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
+function questionDto(q) {
+  const x = q.toObject ? q.toObject() : q;
+  return { id: x.id, driveId: x.driveId, drive_id: x.driveId, roundId: x.roundId, round_id: x.roundId,
+    questionText: x.questionText, question_text: x.questionText, options: x.options || [], correctIndex: x.correctIndex,
+    correct_index: x.correctIndex, explanation: x.explanation, subject: x.subject, topic: x.topic,
+    difficulty: x.difficulty, title: x.title || "", starterCode: x.starterCode || "", sampleInput: x.sampleInput || "",
+    sampleOutput: x.sampleOutput || "", testCases: x.testCases || [] };
 }
 
 async function initDb() {
-  // Create tables
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      full_name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      role TEXT CHECK(role IN ('student', 'hr', 'admin')) NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      target_role TEXT,
-      streak INTEGER DEFAULT 0,
-      last_active TEXT,
-      cgpa REAL,
-      department TEXT,
-      skills TEXT,
-      company_name TEXT
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS results (
-      id TEXT PRIMARY KEY,
-      username TEXT,
-      type TEXT,
-      subject TEXT,
-      score REAL,
-      total INTEGER,
-      date TEXT
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS bookmarks (
-      id TEXT PRIMARY KEY,
-      username TEXT,
-      question TEXT,
-      subject TEXT,
-      type TEXT
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS notes (
-      id TEXT PRIMARY KEY,
-      username TEXT,
-      title TEXT,
-      content TEXT,
-      date TEXT
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS recruitment_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS recruitment_rounds (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      passing_percentage INTEGER,
-      min_score REAL,
-      negative_marking INTEGER,
-      time_limit INTEGER,
-      mandatory INTEGER,
-      weightage INTEGER,
-      type TEXT,
-      subject TEXT
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS candidate_status (
-      username TEXT,
-      round_id TEXT,
-      status TEXT,
-      score REAL,
-      percentage REAL,
-      date TEXT,
-      PRIMARY KEY (username, round_id)
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS placement_companies (
-      username TEXT PRIMARY KEY,
-      company_name TEXT
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS placement_drives (
-      id TEXT PRIMARY KEY,
-      company_username TEXT,
-      name TEXT,
-      status TEXT,
-      auto_shortlist INTEGER,
-      job_role TEXT,
-      package_offered TEXT,
-      assessment_date TEXT,
-      assessment_time TEXT,
-      duration INTEGER,
-      eligible_depts TEXT,
-      min_cgpa REAL,
-      eligible_batch TEXT,
-      max_students_limit INTEGER,
-      rounds TEXT
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS placement_questions (
-      id TEXT PRIMARY KEY,
-      drive_id TEXT,
-      round_id TEXT,
-      question_text TEXT,
-      options TEXT,
-      correct_index INTEGER,
-      explanation TEXT,
-      subject TEXT,
-      topic TEXT,
-      difficulty TEXT
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS placement_progress (
-      username TEXT,
-      drive_id TEXT,
-      current_round_index INTEGER,
-      status TEXT,
-      scores TEXT,
-      PRIMARY KEY (username, drive_id)
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS placement_registrations (
-      username TEXT,
-      drive_id TEXT,
-      date TEXT,
-      PRIMARY KEY (username, drive_id)
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS interviews (
-      id TEXT PRIMARY KEY,
-      meeting_id TEXT UNIQUE NOT NULL,
-      hr_id TEXT NOT NULL,
-      student_id TEXT NOT NULL,
-      scheduled_date TEXT NOT NULL,
-      scheduled_time TEXT NOT NULL,
-      duration INTEGER NOT NULL,
-      type TEXT NOT NULL,
-      status TEXT CHECK(status IN ('scheduled', 'waiting', 'ongoing', 'completed', 'cancelled')) DEFAULT 'scheduled',
-      meeting_status TEXT CHECK(meeting_status IN ('scheduled', 'waiting', 'ongoing', 'completed', 'cancelled')) DEFAULT 'scheduled',
-      join_token TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (hr_id) REFERENCES users(id),
-      FOREIGN KEY (student_id) REFERENCES users(id)
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS interview_feedback (
-      id TEXT PRIMARY KEY,
-      interview_id TEXT UNIQUE NOT NULL,
-      communication_score INTEGER CHECK(communication_score >= 1 AND communication_score <= 10),
-      technical_score INTEGER CHECK(technical_score >= 1 AND technical_score <= 10),
-      confidence_score INTEGER CHECK(confidence_score >= 1 AND confidence_score <= 10),
-      problem_solving_score INTEGER CHECK(problem_solving_score >= 1 AND problem_solving_score <= 10),
-      overall_rating REAL,
-      comments TEXT,
-      result TEXT CHECK(result IN ('selected', 'rejected', 'hold')),
-      submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (interview_id) REFERENCES interviews(id)
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS interview_chat (
-      id TEXT PRIMARY KEY,
-      interview_id TEXT NOT NULL,
-      sender_id TEXT NOT NULL,
-      message TEXT NOT NULL,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (interview_id) REFERENCES interviews(id),
-      FOREIGN KEY (sender_id) REFERENCES users(id)
-    )
-  `);
-
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS interview_history (
-      id TEXT PRIMARY KEY,
-      interview_id TEXT NOT NULL,
-      student_joined_at TEXT,
-      hr_joined_at TEXT,
-      ended_at TEXT,
-      duration_seconds INTEGER,
-      FOREIGN KEY (interview_id) REFERENCES interviews(id)
-    )
-  `);
-
-  // Migrations for interviews table columns
-  try {
-    await dbRun("ALTER TABLE interviews ADD COLUMN meeting_status TEXT DEFAULT 'scheduled'");
-    console.log("Migration: Added meeting_status column to interviews table successfully.");
-  } catch (err) {
-    // Column already exists or table doesn't exist yet
+  const uri = process.env.MONGODB_URI;
+  if (!uri) throw new Error("MONGODB_URI is required.");
+  await mongoose.connect(uri, { serverSelectionTimeoutMS: Number(process.env.MONGODB_TIMEOUT_MS || 10000), maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE || 20) });
+  await Promise.all(Object.values(mongoose.models).map(model => model.init()));
+  const existingAdmin = await User.exists({ role: "admin" });
+  if (!existingAdmin && (process.env.ADMIN_EMAIL || process.env.ADMIN_PASSWORD)) {
+    const email = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    const password = process.env.ADMIN_PASSWORD || "";
+    if (!email || password.length < 12) throw new Error("ADMIN_EMAIL and an ADMIN_PASSWORD of at least 12 characters are required together.");
+    await User.create({ id: generateUUID(), fullName: "System Administrator", email, password: bcrypt.hashSync(password, 12), role: "admin" });
+  } else if (!existingAdmin && process.env.NODE_ENV === "production") {
+    throw new Error("A fresh production database requires ADMIN_EMAIL and an ADMIN_PASSWORD of at least 12 characters.");
   }
-  try {
-    await dbRun("ALTER TABLE interviews ADD COLUMN join_token TEXT");
-    console.log("Migration: Added join_token column to interviews table successfully.");
-  } catch (err) {
-    // Column already exists or table doesn't exist yet
-  }
-
-  // Migrations for placement_questions table (coding sandbox fields)
-  try {
-    await dbRun("ALTER TABLE placement_questions ADD COLUMN title TEXT");
-    await dbRun("ALTER TABLE placement_questions ADD COLUMN starter_code TEXT");
-    await dbRun("ALTER TABLE placement_questions ADD COLUMN sample_input TEXT");
-    await dbRun("ALTER TABLE placement_questions ADD COLUMN sample_output TEXT");
-    await dbRun("ALTER TABLE placement_questions ADD COLUMN test_cases TEXT");
-    console.log("Migration: Added coding columns to placement_questions successfully.");
-  } catch (err) {
-    // Columns already exist
-  }
-
-  // Seed default users if users table is empty
-  const usersCount = await dbGet("SELECT COUNT(*) as count FROM users");
-  if (usersCount.count === 0) {
-    console.log("Seeding default users...");
-    const defaultUsers = [
-      {
-        fullName: "System Administrator",
-        email: "admin@example.com",
-        password: "admin",
-        role: "admin",
-        targetRole: null,
-        streak: 0,
-        cgpa: null,
-        department: null,
-        skills: null,
-        companyName: null
-      },
-      {
-        fullName: "Jane Doe",
-        email: "student@example.com",
-        password: "password",
-        role: "student",
-        targetRole: "Full Stack Engineer",
-        streak: 5,
-        cgpa: 8.2,
-        department: "CSE",
-        skills: JSON.stringify(["JavaScript", "React"]),
-        companyName: null
-      },
-      {
-        fullName: "HR Recruiter",
-        email: "hr@example.com",
-        password: "password",
-        role: "hr",
-        targetRole: "Talent Acquisition Manager",
-        streak: 1,
-        cgpa: null,
-        department: null,
-        skills: null,
-        companyName: "HireGrad Hiring Corp"
-      },
-      {
-        fullName: "Alice Smith",
-        email: "alice@example.com",
-        password: "password",
-        role: "student",
-        targetRole: "Frontend Developer",
-        streak: 4,
-        cgpa: 8.5,
-        department: "CSE",
-        skills: JSON.stringify(["React", "CSS"]),
-        companyName: null
-      },
-      {
-        fullName: "Bob Jones",
-        email: "bob@example.com",
-        password: "password",
-        role: "student",
-        targetRole: "Java Developer",
-        streak: 2,
-        cgpa: 6.8,
-        department: "ECE",
-        skills: JSON.stringify(["Java", "Spring"]),
-        companyName: null
-      },
-      {
-        fullName: "Charlie Brown",
-        email: "charlie@example.com",
-        password: "password",
-        role: "student",
-        targetRole: "QA Engineer",
-        streak: 3,
-        cgpa: 7.2,
-        department: "IT",
-        skills: JSON.stringify(["Testing", "Selenium"]),
-        companyName: null
-      },
-      {
-        fullName: "David Miller",
-        email: "david@example.com",
-        password: "password",
-        role: "student",
-        targetRole: "DevOps Engineer",
-        streak: 0,
-        cgpa: 6.0,
-        department: "IT",
-        skills: JSON.stringify(["Docker", "AWS"]),
-        companyName: null
-      },
-      {
-        fullName: "Eva Davis",
-        email: "eva@example.com",
-        password: "password",
-        role: "student",
-        targetRole: "Data Scientist",
-        streak: 6,
-        cgpa: 9.0,
-        department: "CSE",
-        skills: JSON.stringify(["Python", "Machine Learning"]),
-        companyName: null
-      }
-    ];
-
-    for (const u of defaultUsers) {
-      const hashedPassword = bcrypt.hashSync(u.password, 10);
-      const userId = generateUUID();
-      await dbRun(
-        `INSERT INTO users (id, full_name, email, password, role, target_role, streak, last_active, cgpa, department, skills, company_name) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [userId, u.fullName, u.email, hashedPassword, u.role, u.targetRole, u.streak, new Date().toISOString(), u.cgpa, u.department, u.skills, u.companyName]
-      );
-    }
-  }
-
-  // Seed default results if empty
-  const resultsCount = await dbGet("SELECT COUNT(*) as count FROM results");
-  if (resultsCount.count === 0) {
-    console.log("Seeding default results...");
-    const defaultResults = [
-      { username: "student", type: "MCQ", subject: "Aptitude", score: 8, total: 10, date: new Date(Date.now() - 86400000).toISOString() },
-      { username: "student", type: "Technical", subject: "Java", score: 7.5, total: 10, date: new Date(Date.now() - 43200000).toISOString() },
-      { username: "alice", type: "MCQ", subject: "Aptitude", score: 8.5, total: 10, date: new Date(Date.now() - 259200000).toISOString() },
-      { username: "alice", type: "Technical", subject: "Java", score: 8, total: 10, date: new Date(Date.now() - 172800000).toISOString() },
-      { username: "alice", type: "Technical", subject: "Problem Solving", score: 8.5, total: 10, date: new Date(Date.now() - 86400000).toISOString() },
-      { username: "alice", type: "HR", subject: "Behavioral", score: 9.0, total: 10, date: new Date(Date.now() - 10000000).toISOString() },
-      { username: "bob", type: "MCQ", subject: "Aptitude", score: 8.0, total: 10, date: new Date(Date.now() - 259200000).toISOString() },
-      { username: "bob", type: "Technical", subject: "Java", score: 5.5, total: 10, date: new Date(Date.now() - 172800000).toISOString() },
-      { username: "charlie", type: "MCQ", subject: "Aptitude", score: 7.8, total: 10, date: new Date(Date.now() - 259200000).toISOString() },
-      { username: "charlie", type: "Technical", subject: "Java", score: 7.2, total: 10, date: new Date(Date.now() - 172800000).toISOString() },
-      { username: "eva", type: "MCQ", subject: "Aptitude", score: 9.5, total: 10, date: new Date(Date.now() - 259200000).toISOString() },
-      { username: "eva", type: "Technical", subject: "Java", score: 8.5, total: 10, date: new Date(Date.now() - 172800000).toISOString() },
-      { username: "eva", type: "Technical", subject: "Problem Solving", score: 8.0, total: 10, date: new Date(Date.now() - 86400000).toISOString() },
-      { username: "eva", type: "HR", subject: "Behavioral", score: 8.0, total: 10, date: new Date(Date.now() - 10000000).toISOString() }
-    ];
-
-    for (const r of defaultResults) {
-      await dbRun(
-        "INSERT INTO results (id, username, type, subject, score, total, date) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [generateUUID(), r.username, r.type, r.subject, r.score, r.total, r.date]
-      );
-    }
-  }
-
-  // Seed default recruitment rounds if empty
-  const roundsCount = await dbGet("SELECT COUNT(*) as count FROM recruitment_rounds");
-  if (roundsCount.count === 0) {
-    console.log("Seeding default recruitment rounds...");
-    const defaultRounds = [
-      { id: "round_1", name: "Aptitude Test", passingPercentage: 75, minScore: 7.5, negativeMarking: 0, timeLimit: 30, mandatory: 1, weightage: 25, type: "mcq", subject: "Aptitude" },
-      { id: "round_2", name: "Java Assessment", passingPercentage: 70, minScore: 7.0, negativeMarking: 1, timeLimit: 45, mandatory: 1, weightage: 25, type: "coding", subject: "Java" },
-      { id: "round_3", name: "Problem Solving", passingPercentage: 80, minScore: 8.0, negativeMarking: 0, timeLimit: 60, mandatory: 1, weightage: 30, type: "coding", subject: "Problem Solving" },
-      { id: "round_4", name: "AI HR Interview", passingPercentage: 60, minScore: 6.0, negativeMarking: 0, timeLimit: 15, mandatory: 1, weightage: 20, type: "hr", subject: "Behavioral" }
-    ];
-
-    for (const r of defaultRounds) {
-      await dbRun(
-        `INSERT INTO recruitment_rounds (id, name, passing_percentage, min_score, negative_marking, time_limit, mandatory, weightage, type, subject) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [r.id, r.name, r.passingPercentage, r.minScore, r.negativeMarking, r.timeLimit, r.mandatory, r.weightage, r.type, r.subject]
-      );
-    }
-  }
-
-  // Seed default candidate status if empty
-  const statusCount = await dbGet("SELECT COUNT(*) as count FROM candidate_status");
-  if (statusCount.count === 0) {
-    console.log("Seeding default candidate status...");
-    const defaultStatus = [
-      { username: "alice", roundId: "round_1", status: "Qualified", score: 8.5, percentage: 85, date: new Date(Date.now() - 259200000).toISOString() },
-      { username: "alice", roundId: "round_2", status: "Qualified", score: 8.0, percentage: 80, date: new Date(Date.now() - 172800000).toISOString() },
-      { username: "alice", roundId: "round_3", status: "Qualified", score: 8.5, percentage: 85, date: new Date(Date.now() - 86400000).toISOString() },
-      { username: "alice", roundId: "round_4", status: "Qualified", score: 9.0, percentage: 90, date: new Date(Date.now() - 10000000).toISOString() },
-      { username: "bob", roundId: "round_1", status: "Qualified", score: 8.0, percentage: 80, date: new Date(Date.now() - 259200000).toISOString() },
-      { username: "bob", roundId: "round_2", status: "Not Qualified", score: 5.5, percentage: 55, date: new Date(Date.now() - 172800000).toISOString() },
-      { username: "charlie", roundId: "round_1", status: "Qualified", score: 7.8, percentage: 78, date: new Date(Date.now() - 259200000).toISOString() },
-      { username: "charlie", roundId: "round_2", status: "Pending", score: 7.2, percentage: 72, date: new Date(Date.now() - 172800000).toISOString() },
-      { username: "eva", roundId: "round_1", status: "Qualified", score: 9.5, percentage: 95, date: new Date(Date.now() - 259200000).toISOString() },
-      { username: "eva", roundId: "round_2", status: "Qualified", score: 8.5, percentage: 85, date: new Date(Date.now() - 172800000).toISOString() },
-      { username: "eva", roundId: "round_3", status: "Qualified", score: 8.0, percentage: 80, date: new Date(Date.now() - 86400000).toISOString() },
-      { username: "eva", roundId: "round_4", status: "Qualified", score: 8.0, percentage: 80, date: new Date(Date.now() - 10000000).toISOString() },
-      { username: "student", roundId: "round_1", status: "Qualified", score: 8.0, percentage: 80, date: new Date(Date.now() - 86400000).toISOString() },
-      { username: "student", roundId: "round_2", status: "Qualified", score: 7.5, percentage: 75, date: new Date(Date.now() - 43200000).toISOString() }
-    ];
-
-    for (const s of defaultStatus) {
-      await dbRun(
-        "INSERT INTO candidate_status (username, round_id, status, score, percentage, date) VALUES (?, ?, ?, ?, ?, ?)",
-        [s.username, s.roundId, s.status, s.score, s.percentage, s.date]
-      );
-    }
-  }
-
-  // Seed default recruitment settings if empty
-  const settingsCount = await dbGet("SELECT COUNT(*) as count FROM recruitment_settings");
-  if (settingsCount.count === 0) {
-    console.log("Seeding default recruitment settings...");
-    await dbRun("INSERT INTO recruitment_settings (key, value) VALUES ('autoShortlist', 'false')");
-  }
-
-  // Seed default placement companies if empty
-  const companiesCount = await dbGet("SELECT COUNT(*) as count FROM placement_companies");
-  if (companiesCount.count === 0) {
-    console.log("Seeding default placement companies...");
-    await dbRun("INSERT INTO placement_companies (username, company_name) VALUES ('tata_hr', 'Tata Consultancy Services')");
-  }
-
-  // Seed default placement drives if empty
-  const drivesCount = await dbGet("SELECT COUNT(*) as count FROM placement_drives");
-  if (drivesCount.count === 0) {
-    console.log("Seeding default placement drives...");
-    const defaultDrives = [
-      {
-        id: "drive_1",
-        companyUsername: "tata_hr",
-        name: "TCS Ninja Hiring 2026",
-        status: "Active",
-        autoShortlist: 0,
-        jobRole: "Software Engineer",
-        packageOffered: "7.5 LPA",
-        assessmentDate: "2026-08-01",
-        assessmentTime: "10:00",
-        duration: 90,
-        eligibleDepts: JSON.stringify(["CSE", "ECE", "IT"]),
-        minCgpa: 7.0,
-        eligibleBatch: "2026",
-        maxStudentsLimit: 100,
-        rounds: JSON.stringify([
-          { id: "r_1", name: "Aptitude Assessment", type: "mcq", passingPercentage: 75, minScore: 7.5, timeLimit: 30, weightage: 30, subject: "Aptitude" },
-          { id: "r_2", name: "Programming Test", type: "coding", passingPercentage: 70, minScore: 7.0, timeLimit: 45, weightage: 40, subject: "JavaScript" },
-          { id: "r_3", name: "AI HR Round", type: "hr", passingPercentage: 60, minScore: 6.0, timeLimit: 15, weightage: 30, subject: "Behavioral" }
-        ])
-      }
-    ];
-
-    for (const d of defaultDrives) {
-      await dbRun(
-        `INSERT INTO placement_drives (id, company_username, name, status, auto_shortlist, job_role, package_offered, 
-         assessment_date, assessment_time, duration, eligible_depts, min_cgpa, eligible_batch, max_students_limit, rounds) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [d.id, d.companyUsername, d.name, d.status, d.autoShortlist, d.jobRole, d.packageOffered,
-         d.assessmentDate, d.assessmentTime, d.duration, d.eligibleDepts, d.minCgpa, d.eligibleBatch, d.maxStudentsLimit, d.rounds]
-      );
-    }
-  }
-
-  // Seed default placement progress if empty
-  const progressCount = await dbGet("SELECT COUNT(*) as count FROM placement_progress");
-  if (progressCount.count === 0) {
-    console.log("Seeding default placement progress...");
-    const defaultProgress = [
-      { username: "alice", driveId: "drive_1", currentRoundIndex: 2, status: "Qualified", scores: JSON.stringify({ "r_1": 8.0, "r_2": 7.5 }) },
-      { username: "bob", driveId: "drive_1", currentRoundIndex: 1, status: "Disqualified", scores: JSON.stringify({ "r_1": 7.8, "r_2": 5.0 }) },
-      { username: "charlie", driveId: "drive_1", currentRoundIndex: 1, status: "Pending", scores: JSON.stringify({ "r_1": 8.5, "r_2": 7.2 }) }
-    ];
-
-    for (const p of defaultProgress) {
-      await dbRun(
-        "INSERT INTO placement_progress (username, drive_id, current_round_index, status, scores) VALUES (?, ?, ?, ?, ?)",
-        [p.username, p.driveId, p.currentRoundIndex, p.status, p.scores]
-      );
-    }
-  }
-
-  // Seed default placement registrations if empty
-  const registrationsCount = await dbGet("SELECT COUNT(*) as count FROM placement_registrations");
-  if (registrationsCount.count === 0) {
-    console.log("Seeding default placement registrations...");
-    await dbRun(
-      "INSERT INTO placement_registrations (username, drive_id, date) VALUES (?, ?, ?)",
-      ["student", "drive_1", new Date().toISOString()]
-    );
-  }
-
-  // Seed default bookmarks if empty
-  const bookmarksCount = await dbGet("SELECT COUNT(*) as count FROM bookmarks");
-  if (bookmarksCount.count === 0) {
-    await dbRun(
-      "INSERT INTO bookmarks (id, username, question, subject, type) VALUES (?, ?, ?, ?, ?)",
-      [generateUUID(), "student", "What is closure in JS?", "JavaScript", "MCQ"]
-    );
-  }
-
-  // Seed default notes if empty
-  const notesCount = await dbGet("SELECT COUNT(*) as count FROM notes");
-  if (notesCount.count === 0) {
-    await dbRun(
-      "INSERT INTO notes (id, username, title, content, date) VALUES (?, ?, ?, ?, ?)",
-      [generateUUID(), "student", "Java OOP Notes", "Remember to explain encapsulation vs abstraction clearly with code examples.", new Date().toISOString()]
-    );
-  }
+  if (process.env.ENABLE_DEMO_SEED === "true") await seedDemoData();
+  console.log(`Connected to MongoDB database: ${mongoose.connection.name}`);
 }
 
-// DATABASE OPERATIONS EXPORTS
-
-// Users & Auth
-async function getUserByEmail(email) {
-  return await dbGet("SELECT * FROM users WHERE email = ?", [email]);
+async function seedDemoData() {
+  if (await User.exists({})) return;
+  const users = [
+    ["System Administrator", "admin@example.com", "admin-password", "admin", null],
+    ["Jane Doe", "student@example.com", "student-password", "student", null],
+    ["HR Recruiter", "hr@example.com", "recruiter-password", "hr", "HireGrad Hiring Corp"]
+  ];
+  for (const [fullName, email, password, role, companyName] of users) {
+    await User.create({ id: generateUUID(), fullName, email, password: bcrypt.hashSync(password, 10), role, companyName,
+      targetRole: role === "student" ? "Software Engineer" : undefined, cgpa: role === "student" ? 8.2 : undefined,
+      department: role === "student" ? "CSE" : undefined, skills: role === "student" ? ["JavaScript", "React"] : [] });
+  }
+  await PlacementCompany.create({ username: "hr", companyName: "HireGrad Hiring Corp" });
+  await Setting.updateOne({ key: "autoShortlist" }, { $setOnInsert: { value: false } }, { upsert: true });
 }
 
-async function getUserById(id) {
-  return await dbGet("SELECT * FROM users WHERE id = ?", [id]);
-}
-
+async function closeDb() { await mongoose.disconnect(); }
+async function getUserByEmail(email) { return userDto(await User.findOne({ email: String(email).toLowerCase() }).select("+password"), true); }
+async function getUserById(id) { return userDto(await User.findOne({ id })); }
 async function getUserByUsername(username) {
-  // Try matching directly in email or match username part before @
-  return await dbGet("SELECT * FROM users WHERE email = ? OR email LIKE ?", [username, `${username}@%`]);
+  const value = String(username).toLowerCase();
+  return userDto(await User.findOne(value.includes("@") ? { email: value } : { email: new RegExp(`^${escapeRegex(value)}@`, "i") }).select("+password"), true);
 }
-
+function escapeRegex(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 async function createUser(fullName, email, hashedPassword, role, companyName = null) {
-  const id = generateUUID();
-  await dbRun(
-    `INSERT INTO users (id, full_name, email, password, role, target_role, streak, last_active, cgpa, department, skills, company_name) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, fullName, email, hashedPassword, role, role === 'student' ? 'Software Engineer' : null, 1, new Date().toISOString(), role === 'student' ? 8.0 : null, role === 'student' ? 'CSE' : null, role === 'student' ? '[]' : null, companyName]
-  );
-  return await getUserById(id);
+  return userDto(await User.create({ id: generateUUID(), fullName, email: String(email).toLowerCase(), password: hashedPassword, role, companyName, streak: 0 }), false);
 }
+async function updateUserProfile(username, cgpa, department, skills) { await User.updateOne(usernameFilter(username), { cgpa, department, skills }); }
+async function updateUserStreakAndActive(username, streak, lastActive) { await User.updateOne(usernameFilter(username), { streak, lastActive }); }
+async function deleteUser(username) { await User.deleteOne(usernameFilter(username)); }
+async function deleteAllUsers() { await User.deleteMany({ role: { $ne: "admin" } }); }
+async function getAllStudents() { return (await User.find({ role: "student" })).map(u => ({ ...userDto(u), skills: u.skills || [], username: u.email.split("@")[0] })); }
+function usernameFilter(username) { const value = String(username).toLowerCase(); return value.includes("@") ? { email: value } : { email: new RegExp(`^${escapeRegex(value)}@`, "i") }; }
 
-async function updateUserProfile(username, cgpa, department, skills) {
-  await dbRun(
-    "UPDATE users SET cgpa = ?, department = ?, skills = ? WHERE email = ? OR email LIKE ?",
-    [cgpa, department, JSON.stringify(skills), username, `${username}@%`]
-  );
-}
+async function getResultsHistory(username) { return Result.find({ username }).sort({ date: -1 }).lean(); }
+async function getAllResults() { return Result.find().lean(); }
+async function saveResult(username, type, subject, score, total) { return Result.create({ username, type, subject, score, total }).then(x => x.toObject()); }
+async function deleteResultsByUsername(username) { await Result.deleteMany({ username }); }
+async function deleteAllResults() { await Result.deleteMany({}); }
+async function getBookmarks(username) { return Bookmark.find({ username }).lean(); }
+async function saveBookmark(username, question, subject, type) { return Bookmark.create({ username, question, subject, type }).then(x => x.toObject()); }
+async function deleteBookmarksByUsername(username) { await Bookmark.deleteMany({ username }); }
+async function deleteAllBookmarks() { await Bookmark.deleteMany({}); }
+async function getNotes(username) { return Note.find({ username }).sort({ date: -1 }).lean(); }
+async function saveNote(username, title, content) { return Note.create({ username, title, content }).then(x => x.toObject()); }
+async function deleteNotesByUsername(username) { await Note.deleteMany({ username }); }
+async function deleteAllNotes() { await Note.deleteMany({}); }
 
-async function updateUserStreakAndActive(username, streak, lastActive) {
-  await dbRun(
-    "UPDATE users SET streak = ?, last_active = ? WHERE email = ? OR email LIKE ?",
-    [streak, lastActive, username, `${username}@%`]
-  );
-}
-
-async function deleteUser(username) {
-  await dbRun("DELETE FROM users WHERE email = ? OR email LIKE ?", [username, `${username}@%`]);
-}
-
-async function deleteAllUsers() {
-  await dbRun("DELETE FROM users WHERE role != 'admin'");
-}
-
-async function getAllStudents() {
-  const students = await dbAll("SELECT * FROM users WHERE role = 'student'");
-  return students.map(s => {
-    try {
-      s.skills = JSON.parse(s.skills || '[]');
-    } catch (e) {
-      s.skills = [];
-    }
-    s.username = s.email.split("@")[0];
-    return s;
-  });
-}
-
-// Results
-async function getResultsHistory(username) {
-  return await dbAll("SELECT * FROM results WHERE username = ?", [username]);
-}
-
-async function getAllResults() {
-  return await dbAll("SELECT * FROM results");
-}
-
-async function saveResult(username, type, subject, score, total) {
-  const id = generateUUID();
-  const date = new Date().toISOString();
-  await dbRun(
-    "INSERT INTO results (id, username, type, subject, score, total, date) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    [id, username, type, subject, score, total, date]
-  );
-  return { id, username, type, subject, score, total, date };
-}
-
-async function deleteResultsByUsername(username) {
-  await dbRun("DELETE FROM results WHERE username = ?", [username]);
-}
-
-async function deleteAllResults() {
-  await dbRun("DELETE FROM results");
-}
-
-// Bookmarks
-async function getBookmarks(username) {
-  return await dbAll("SELECT * FROM bookmarks WHERE username = ?", [username]);
-}
-
-async function saveBookmark(username, question, subject, type) {
-  const id = generateUUID();
-  await dbRun(
-    "INSERT INTO bookmarks (id, username, question, subject, type) VALUES (?, ?, ?, ?, ?)",
-    [id, username, question, subject, type]
-  );
-  return { id, username, question, subject, type };
-}
-
-async function deleteBookmarksByUsername(username) {
-  await dbRun("DELETE FROM bookmarks WHERE username = ?", [username]);
-}
-
-async function deleteAllBookmarks() {
-  await dbRun("DELETE FROM bookmarks");
-}
-
-// Notes
-async function getNotes(username) {
-  return await dbAll("SELECT * FROM notes WHERE username = ?", [username]);
-}
-
-async function saveNote(username, title, content) {
-  const id = generateUUID();
-  const date = new Date().toISOString();
-  await dbRun(
-    "INSERT INTO notes (id, username, title, content, date) VALUES (?, ?, ?, ?, ?)",
-    [id, username, title, content, date]
-  );
-  return { id, username, title, content, date };
-}
-
-async function deleteNotesByUsername(username) {
-  await dbRun("DELETE FROM notes WHERE username = ?", [username]);
-}
-
-async function deleteAllNotes() {
-  await dbRun("DELETE FROM notes");
-}
-
-// Recruitment settings
-async function getRecruitmentSettings() {
-  const row = await dbGet("SELECT value FROM recruitment_settings WHERE key = 'autoShortlist'");
-  return { autoShortlist: row ? row.value === 'true' : false };
-}
-
-async function saveRecruitmentSettings(autoShortlist) {
-  await dbRun(
-    "INSERT INTO recruitment_settings (key, value) VALUES ('autoShortlist', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    [autoShortlist ? 'true' : 'false']
-  );
-}
-
-// Recruitment rounds
-async function getRecruitmentRounds() {
-  return await dbAll("SELECT * FROM recruitment_rounds");
-}
-
+async function getRecruitmentSettings() { const x = await Setting.findOne({ key: "autoShortlist" }).lean(); return { autoShortlist: Boolean(x?.value) }; }
+async function saveRecruitmentSettings(autoShortlist) { await Setting.updateOne({ key: "autoShortlist" }, { value: Boolean(autoShortlist) }, { upsert: true }); }
+async function getRecruitmentRounds() { return (await RecruitmentRound.find()).map(roundDto); }
 async function saveRecruitmentRound(round) {
-  const { id, name, passingPercentage, minScore, negativeMarking, timeLimit, mandatory, weightage, type, subject } = round;
-  
-  if (id) {
-    // Check if exists
-    const existing = await dbGet("SELECT id FROM recruitment_rounds WHERE id = ?", [id]);
-    if (existing) {
-      await dbRun(
-        `UPDATE recruitment_rounds SET name = ?, passing_percentage = ?, min_score = ?, negative_marking = ?, 
-         time_limit = ?, mandatory = ?, weightage = ?, type = ?, subject = ? WHERE id = ?`,
-        [name, passingPercentage, minScore, negativeMarking ? 1 : 0, timeLimit, mandatory ? 1 : 0, weightage, type, subject, id]
-      );
-      return await dbGet("SELECT * FROM recruitment_rounds WHERE id = ?", [id]);
-    }
-  }
-
-  const newId = id || "round_" + (Date.now());
-  await dbRun(
-    `INSERT INTO recruitment_rounds (id, name, passing_percentage, min_score, negative_marking, time_limit, mandatory, weightage, type, subject) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [newId, name, passingPercentage, minScore, negativeMarking ? 1 : 0, timeLimit, mandatory ? 1 : 0, weightage, type, subject]
-  );
-  return await dbGet("SELECT * FROM recruitment_rounds WHERE id = ?", [newId]);
+  const id = round.id || `round_${Date.now()}`;
+  const x = await RecruitmentRound.findOneAndUpdate({ id }, { id, name: round.name, passingPercentage: round.passingPercentage,
+    minScore: round.minScore, negativeMarking: Boolean(round.negativeMarking), timeLimit: round.timeLimit,
+    mandatory: Boolean(round.mandatory), weightage: round.weightage, type: round.type, subject: round.subject },
+  { upsert: true, new: true, runValidators: true }); return roundDto(x);
 }
+async function getCandidateStatusByUsername(username) { return (await CandidateStatus.find({ username })).map(statusDto); }
+async function getAllCandidateStatus() { return (await CandidateStatus.find()).map(statusDto); }
+async function saveCandidateStatus(username, roundId, status, score, percentage) { await CandidateStatus.updateOne({ username, roundId }, { username, roundId, status, score, percentage, date: new Date() }, { upsert: true }); }
+async function publishCandidateStatus(roundId) { return CandidateStatus.updateMany({ roundId, status: "Pending" }, { status: "Qualified" }); }
+async function deleteCandidateStatusByUsername(username) { await CandidateStatus.deleteMany({ username }); }
+async function deleteAllCandidateStatus() { await CandidateStatus.deleteMany({}); }
 
-// Candidate Round status
-async function getCandidateStatusByUsername(username) {
-  return await dbAll("SELECT * FROM candidate_status WHERE username = ?", [username]);
-}
-
-async function getAllCandidateStatus() {
-  return await dbAll("SELECT * FROM candidate_status");
-}
-
-async function saveCandidateStatus(username, roundId, status, score, percentage) {
-  const date = new Date().toISOString();
-  await dbRun(
-    `INSERT INTO candidate_status (username, round_id, status, score, percentage, date) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(username, round_id) DO UPDATE SET status = excluded.status, score = excluded.score, percentage = excluded.percentage, date = excluded.date`,
-    [username, roundId, status, score, percentage, date]
-  );
-}
-
-async function publishCandidateStatus(roundId) {
-  await dbRun("UPDATE candidate_status SET status = 'Qualified' WHERE round_id = ? AND status = 'Pending'", [roundId]);
-}
-
-async function deleteCandidateStatusByUsername(username) {
-  await dbRun("DELETE FROM candidate_status WHERE username = ?", [username]);
-}
-
-async function deleteAllCandidateStatus() {
-  await dbRun("DELETE FROM candidate_status");
-}
-
-// Placement companies
-async function getPlacementCompanies() {
-  // Return companies seeded/stored
-  return await dbAll("SELECT * FROM placement_companies");
-}
-
-async function savePlacementCompany(username, companyName) {
-  await dbRun(
-    "INSERT INTO placement_companies (username, company_name) VALUES (?, ?) ON CONFLICT(username) DO UPDATE SET company_name = excluded.company_name",
-    [username, companyName]
-  );
-}
-
-async function deleteCompany(username) {
-  await dbRun("DELETE FROM placement_companies WHERE username = ?", [username]);
-}
-
-async function deleteAllCompanies() {
-  await dbRun("DELETE FROM placement_companies");
-}
-
-// Placement drives
-async function getPlacementDrives() {
-  const drives = await dbAll("SELECT * FROM placement_drives");
-  return drives.map(d => {
-    try {
-      d.rounds = JSON.parse(d.rounds || '[]');
-      d.eligibleDepts = JSON.parse(d.eligibleDepts || '[]');
-    } catch (e) {
-      d.rounds = [];
-      d.eligibleDepts = [];
-    }
-    d.autoShortlist = d.auto_shortlist === 1;
-    return d;
-  });
-}
-
-async function createPlacementDrive(drive) {
-  const { 
-    id, name, companyUsername, autoShortlist, jobRole, packageOffered, 
-    assessmentDate, assessmentTime, duration, eligibleDepts, 
-    minCgpa, eligibleBatch, maxStudentsLimit, rounds, status 
-  } = drive;
-
-  const existing = await dbGet("SELECT id FROM placement_drives WHERE id = ?", [id]);
-  if (existing) {
-    await dbRun(
-      `UPDATE placement_drives SET name = ?, company_username = ?, auto_shortlist = ?, job_role = ?, package_offered = ?, 
-       assessment_date = ?, assessment_time = ?, duration = ?, eligible_depts = ?, min_cgpa = ?, eligible_batch = ?, 
-       max_students_limit = ? WHERE id = ?`,
-      [name, companyUsername, autoShortlist ? 1 : 0, jobRole, packageOffered,
-       assessmentDate, assessmentTime, duration, JSON.stringify(eligibleDepts || []), minCgpa, eligibleBatch, maxStudentsLimit, id]
-    );
-    const updatedDrive = await dbGet("SELECT * FROM placement_drives WHERE id = ?", [id]);
-    try {
-      updatedDrive.rounds = JSON.parse(updatedDrive.rounds || '[]');
-      updatedDrive.eligibleDepts = JSON.parse(updatedDrive.eligibleDepts || '[]');
-    } catch(e) {
-      updatedDrive.rounds = [];
-      updatedDrive.eligibleDepts = [];
-    }
-    updatedDrive.autoShortlist = updatedDrive.auto_shortlist === 1;
-    return updatedDrive;
-  } else {
-    await dbRun(
-      `INSERT INTO placement_drives (id, company_username, name, status, auto_shortlist, job_role, package_offered, 
-       assessment_date, assessment_time, duration, eligible_depts, min_cgpa, eligible_batch, max_students_limit, rounds) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, companyUsername, name, status || "Draft", autoShortlist ? 1 : 0, jobRole, packageOffered,
-       assessmentDate, assessmentTime, duration, JSON.stringify(eligibleDepts || []), minCgpa, eligibleBatch, maxStudentsLimit, JSON.stringify(rounds || [])]
-    );
-    return drive;
-  }
-}
-
-async function publishPlacementDrive(driveId) {
-  await dbRun("UPDATE placement_drives SET status = 'Active' WHERE id = ?", [driveId]);
-}
-
-async function savePlacementDriveRounds(driveId, rounds) {
-  await dbRun("UPDATE placement_drives SET rounds = ? WHERE id = ?", [JSON.stringify(rounds), driveId]);
-}
-
-async function deleteDrive(id) {
-  await dbRun("DELETE FROM placement_drives WHERE id = ?", [id]);
-}
-
-async function deleteAllDrives() {
-  await dbRun("DELETE FROM placement_drives");
-}
-
-// Placement registrations
-async function getPlacementRegistrations(username) {
-  const regs = await dbAll("SELECT drive_id FROM placement_registrations WHERE username = ?", [username]);
-  return regs.map(r => r.drive_id);
-}
-
-async function registerForDrive(username, driveId) {
-  await dbRun(
-    "INSERT INTO placement_registrations (username, drive_id, date) VALUES (?, ?, ?)",
-    [username, driveId, new Date().toISOString()]
-  );
-}
-
-async function getRegistrationsForDrive(driveId) {
-  return await dbAll("SELECT * FROM placement_registrations WHERE drive_id = ?", [driveId]);
-}
-
-async function deleteRegistrationsByUsername(username) {
-  await dbRun("DELETE FROM placement_registrations WHERE username = ?", [username]);
-}
-
-async function deleteRegistrationsByDriveId(driveId) {
-  await dbRun("DELETE FROM placement_registrations WHERE drive_id = ?", [driveId]);
-}
-
-async function deleteAllRegistrations() {
-  await dbRun("DELETE FROM placement_registrations");
-}
-
-// Placement progress
-async function getPlacementProgress(username) {
-  const list = await dbAll("SELECT * FROM placement_progress WHERE username = ?", [username]);
-  return list.map(p => {
-    try {
-      p.scores = JSON.parse(p.scores || '{}');
-    } catch (e) {
-      p.scores = {};
-    }
-    return p;
-  });
-}
-
-async function getPlacementCandidates(driveId) {
-  const list = await dbAll("SELECT * FROM placement_progress WHERE drive_id = ?", [driveId]);
-  return list.map(p => {
-    try {
-      p.scores = JSON.parse(p.scores || '{}');
-    } catch (e) {
-      p.scores = {};
-    }
-    return p;
-  });
-}
-
-async function savePlacementProgress(username, driveId, currentRoundIndex, status, scores) {
-  await dbRun(
-    `INSERT INTO placement_progress (username, drive_id, current_round_index, status, scores) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(username, drive_id) DO UPDATE SET current_round_index = excluded.current_round_index, status = excluded.status, scores = excluded.scores`,
-    [username, driveId, currentRoundIndex, status, JSON.stringify(scores || {})]
-  );
-}
-
-async function publishPlacementProgress(driveId, roundId, nextRoundIndex) {
-  const list = await dbAll("SELECT * FROM placement_progress WHERE drive_id = ? AND status = 'Pending'", [driveId]);
-  let count = 0;
-  for (const progress of list) {
-    await dbRun(
-      "UPDATE placement_progress SET status = 'Qualified', current_round_index = ? WHERE username = ? AND drive_id = ?",
-      [nextRoundIndex, progress.username, driveId]
-    );
-    count++;
-  }
-  return count;
-}
-
-async function deletePlacementProgressByUsername(username) {
-  await dbRun("DELETE FROM placement_progress WHERE username = ?", [username]);
-}
-
-async function deletePlacementProgressByDriveId(driveId) {
-  await dbRun("DELETE FROM placement_progress WHERE drive_id = ?", [driveId]);
-}
-
-async function deleteAllPlacementProgress() {
-  await dbRun("DELETE FROM placement_progress");
-}
-
-// Placement questions
-async function getPlacementQuestions(driveId, roundId) {
-  const list = await dbAll("SELECT * FROM placement_questions WHERE drive_id = ? AND round_id = ?", [driveId, roundId]);
-  return list.map(q => {
-    try {
-      q.options = JSON.parse(q.options || '[]');
-    } catch (e) {
-      q.options = [];
-    }
-    try {
-      q.testCases = JSON.parse(q.test_cases || '[]');
-    } catch (e) {
-      q.testCases = [];
-    }
-    q.starterCode = q.starter_code || "";
-    q.sampleInput = q.sample_input || "";
-    q.sampleOutput = q.sample_output || "";
-    return q;
-  });
-}
-
+async function getPlacementCompanies() { return (await PlacementCompany.find().lean()).map(x => ({ username: x.username, companyName: x.companyName, company_name: x.companyName })); }
+async function savePlacementCompany(username, companyName) { await PlacementCompany.updateOne({ username }, { username, companyName }, { upsert: true }); }
+async function deleteCompany(username) { await PlacementCompany.deleteOne({ username }); }
+async function deleteAllCompanies() { await PlacementCompany.deleteMany({}); }
+function driveDto(d) { if (!d) return null; const x = d.toObject ? d.toObject() : d; return { ...x, company_username: x.companyUsername, auto_shortlist: x.autoShortlist ? 1 : 0,
+  job_role: x.jobRole, package_offered: x.packageOffered, assessment_date: x.assessmentDate, assessment_time: x.assessmentTime,
+  min_cgpa: x.minCgpa, eligible_batch: x.eligibleBatch, max_students_limit: x.maxStudentsLimit }; }
+async function getPlacementDrives() { return (await PlacementDrive.find().lean()).map(driveDto); }
+async function createPlacementDrive(drive) { return driveDto(await PlacementDrive.findOneAndUpdate({ id: drive.id }, { $set: { ...drive, status: drive.status || "Draft", rounds: drive.rounds || [] } }, { upsert: true, new: true, runValidators: true })); }
+async function publishPlacementDrive(driveId) { await PlacementDrive.updateOne({ id: driveId }, { status: "Active" }); }
+async function completePlacementDrive(driveId) { await PlacementDrive.updateOne({ id: driveId }, { status: "Completed" }); }
+async function savePlacementDriveRounds(driveId, rounds) { await PlacementDrive.updateOne({ id: driveId }, { rounds }); }
+async function deleteDrive(id) { await Promise.all([PlacementDrive.deleteOne({ id }), PlacementQuestion.deleteMany({ driveId: id })]); }
+async function deleteAllDrives() { await Promise.all([PlacementDrive.deleteMany({}), PlacementQuestion.deleteMany({})]); }
+async function getPlacementRegistrations(username) { return (await PlacementRegistration.find({ username }).select("driveId -_id").lean()).map(x => x.driveId); }
+async function registerForDrive(username, driveId) { return PlacementRegistration.create({ username, driveId }); }
+async function getRegistrationsForDrive(driveId) { return PlacementRegistration.find({ driveId }).lean(); }
+async function deleteRegistrationsByUsername(username) { await PlacementRegistration.deleteMany({ username }); }
+async function deleteRegistrationsByDriveId(driveId) { await PlacementRegistration.deleteMany({ driveId }); }
+async function deleteAllRegistrations() { await PlacementRegistration.deleteMany({}); }
+async function getPlacementProgress(username) { return (await PlacementProgress.find({ username })).map(progressDto); }
+async function getPlacementCandidates(driveId) { return (await PlacementProgress.find({ driveId })).map(progressDto); }
+async function savePlacementProgress(username, driveId, currentRoundIndex, status, scores) { await PlacementProgress.updateOne({ username, driveId }, { username, driveId, currentRoundIndex, status, scores }, { upsert: true }); }
+async function publishPlacementProgress(driveId, roundId, nextRoundIndex) { const x = await PlacementProgress.updateMany({ driveId, status: "Pending" }, { status: "Qualified", currentRoundIndex: nextRoundIndex }); return x.modifiedCount; }
+async function deletePlacementProgressByUsername(username) { await PlacementProgress.deleteMany({ username }); }
+async function deletePlacementProgressByDriveId(driveId) { await PlacementProgress.deleteMany({ driveId }); }
+async function deleteAllPlacementProgress() { await PlacementProgress.deleteMany({}); }
+async function getPlacementQuestions(driveId, roundId) { return (await PlacementQuestion.find({ driveId, roundId })).map(questionDto); }
 async function savePlacementQuestions(driveId, roundId, questions) {
-  // Clear old questions for this round
-  await dbRun("DELETE FROM placement_questions WHERE drive_id = ? AND round_id = ?", [driveId, roundId]);
-  
-  for (const q of questions) {
-    const id = "pq_" + Date.now() + Math.random().toString(36).substring(7);
-    await dbRun(
-      `INSERT INTO placement_questions (
-        id, drive_id, round_id, question_text, options, correct_index, 
-        explanation, subject, topic, difficulty, title, starter_code, 
-        sample_input, sample_output, test_cases
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id, driveId, roundId, q.questionText, JSON.stringify(q.options || []), 
-        q.correctIndex !== undefined ? parseInt(q.correctIndex) : 0, q.explanation || "", 
-        q.subject || "General", q.topic || "Core", q.difficulty || "Medium",
-        q.title || "", q.starterCode || "", q.sampleInput || "", q.sampleOutput || "",
-        JSON.stringify(q.testCases || [])
-      ]
-    );
-  }
+  if (!Array.isArray(questions) || !questions.length || questions.length > 100) throw new Error("Questions must contain 1 to 100 items.");
+  const docs = questions.map(q => { if (!q.questionText && !q.title) throw new Error("Every question requires text or a title."); return { ...q, id: generateUUID(), driveId, roundId }; });
+  const session = await mongoose.startSession();
+  try { await session.withTransaction(async () => { await PlacementQuestion.deleteMany({ driveId, roundId }, { session }); await PlacementQuestion.insertMany(docs, { session }); }); }
+  catch (error) {
+    // Standalone MongoDB does not support transactions; safely replace only after input validation.
+    if (!/Transaction numbers|replica set/i.test(String(error.message))) throw error;
+    await PlacementQuestion.deleteMany({ driveId, roundId }); await PlacementQuestion.insertMany(docs);
+  } finally { await session.endSession(); }
 }
 
-// Live HR Interview Operations
-async function createInterview(meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type, joinToken = null) {
-  const id = generateUUID();
-  await dbRun(
-    `INSERT INTO interviews (id, meeting_id, hr_id, student_id, scheduled_date, scheduled_time, duration, type, status, meeting_status, join_token) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 'scheduled', ?)`,
-    [id, meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type, joinToken]
-  );
-  return await getInterviewById(id);
+async function hydrateInterview(interview) {
+  if (!interview) return null; const x = interview.toObject ? interview.toObject() : interview;
+  const [hr, student] = await Promise.all([User.findOne({ id: x.hrId }).lean(), User.findOne({ id: x.studentId }).lean()]);
+  return { id: x.id, meetingId: x.meetingId, hrId: x.hrId, studentId: x.studentId, date: x.scheduledDate,
+    time: x.scheduledTime, scheduled_time: x.scheduledTime, duration: x.duration, type: x.type, status: x.status,
+    meeting_status: x.meetingStatus || x.status, meetingStatus: x.meetingStatus || x.status, hrName: hr?.fullName || "HR Recruiter",
+    studentName: student?.fullName || "Candidate", studentEmail: student?.email || "", companyName: hr?.companyName || "",
+    invitationStatus: x.invitationStatus || "pending", invitationRespondedAt: x.invitationRespondedAt,
+    cgpa: student?.cgpa, department: student?.department, skills: student?.skills || [] };
 }
-
-function formatInterview(row) {
-  if (!row) return null;
-  return {
-    id: row.id,
-    meetingId: row.meeting_id,
-    hrId: row.hr_id,
-    studentId: row.student_id,
-    date: row.scheduled_date,
-    time: row.scheduled_time,
-    scheduled_time: row.scheduled_time,
-    duration: row.duration,
-    type: row.type,
-    status: row.status,
-    meeting_status: row.meeting_status || row.status,
-    meetingStatus: row.meeting_status || row.status,
-    join_token: row.join_token || null,
-    hrName: row.hr_name || "HR Recruiter",
-    studentName: row.student_name || "Candidate",
-    studentEmail: row.student_email || "",
-    companyName: row.company_name || ""
-  };
-}
-
-async function getInterviewById(id) {
-  const row = await dbGet(
-    `SELECT i.*, 
-            hr.full_name as hr_name, hr.company_name,
-            std.full_name as student_name, std.email as student_email 
-     FROM interviews i
-     LEFT JOIN users hr ON i.hr_id = hr.id
-     LEFT JOIN users std ON i.student_id = std.id
-     WHERE i.id = ?`,
-    [id]
-  );
-  return formatInterview(row);
-}
-
-async function getInterviewByMeetingId(meetingId) {
-  const row = await dbGet(
-    `SELECT i.*, 
-            hr.full_name as hr_name, hr.company_name,
-            std.full_name as student_name, std.email as student_email 
-     FROM interviews i
-     LEFT JOIN users hr ON i.hr_id = hr.id
-     LEFT JOIN users std ON i.student_id = std.id
-     WHERE i.meeting_id = ?`,
-    [meetingId]
-  );
-  return formatInterview(row);
-}
-
-async function getInterviewsForStudent(studentId) {
-  const rows = await dbAll(
-    `SELECT i.*, u.full_name as hr_name, u.company_name 
-     FROM interviews i 
-     JOIN users u ON i.hr_id = u.id 
-     WHERE i.student_id = ? 
-     ORDER BY i.scheduled_date DESC, i.scheduled_time DESC`,
-    [studentId]
-  );
-  return rows.map(formatInterview);
-}
-
-async function getInterviewsForHR(hrId) {
-  const rows = await dbAll(
-    `SELECT i.*, u.full_name as student_name, u.email as student_email, u.cgpa, u.department, u.skills 
-     FROM interviews i 
-     JOIN users u ON i.student_id = u.id 
-     WHERE i.hr_id = ? 
-     ORDER BY i.scheduled_date DESC, i.scheduled_time DESC`,
-    [hrId]
-  );
-  return rows.map(formatInterview);
-}
-
-async function updateInterviewStatus(id, status) {
-  await dbRun("UPDATE interviews SET status = ?, meeting_status = ? WHERE id = ?", [status, status, id]);
-  return await getInterviewById(id);
-}
-
+async function createInterview(meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type, joinToken = null) { return hydrateInterview(await Interview.create({ meetingId, hrId, studentId, scheduledDate, scheduledTime, duration, type, joinToken })); }
+async function getInterviewById(id) { return hydrateInterview(await Interview.findOne({ id })); }
+async function getInterviewByMeetingId(meetingId) { return hydrateInterview(await Interview.findOne({ meetingId })); }
+async function getInterviewsForStudent(studentId) { const xs = await Interview.find({ studentId }).sort({ scheduledDate: -1, scheduledTime: -1 }); return Promise.all(xs.map(hydrateInterview)); }
+async function getInterviewsForHR(hrId) { const xs = await Interview.find({ hrId }).sort({ scheduledDate: -1, scheduledTime: -1 }); return Promise.all(xs.map(hydrateInterview)); }
+async function updateInterviewStatus(id, status) { return hydrateInterview(await Interview.findOneAndUpdate({ id }, { status, meetingStatus: status }, { new: true, runValidators: true })); }
+async function respondToInterviewInvitation(id, invitationStatus) { return hydrateInterview(await Interview.findOneAndUpdate(
+  { id }, { invitationStatus, invitationRespondedAt: new Date() }, { new: true, runValidators: true }
+)); }
+function feedbackDto(f) { if (!f) return null; const x = f.toObject ? f.toObject() : f; return { id: x.id, interview_id: x.interviewId, interviewId: x.interviewId,
+  communication_score: x.communicationScore, technical_score: x.technicalScore, confidence_score: x.confidenceScore,
+  problem_solving_score: x.problemSolvingScore, overall_rating: x.overallRating, comments: x.comments, result: x.result, submitted_at: x.submittedAt }; }
 async function saveInterviewFeedback(interviewId, communicationScore, technicalScore, confidenceScore, problemSolvingScore, overallRating, comments, result) {
-  const existing = await getInterviewFeedback(interviewId);
-  if (existing) {
-    await dbRun(
-      `UPDATE interview_feedback SET 
-        communication_score = ?, 
-        technical_score = ?, 
-        confidence_score = ?, 
-        problem_solving_score = ?, 
-        overall_rating = ?, 
-        comments = ?, 
-        result = ?, 
-        submitted_at = CURRENT_TIMESTAMP 
-       WHERE interview_id = ?`,
-      [communicationScore, technicalScore, confidenceScore, problemSolvingScore, overallRating, comments, result, interviewId]
-    );
-  } else {
-    const id = generateUUID();
-    await dbRun(
-      `INSERT INTO interview_feedback (id, interview_id, communication_score, technical_score, confidence_score, problem_solving_score, overall_rating, comments, result) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, interviewId, communicationScore, technicalScore, confidenceScore, problemSolvingScore, overallRating, comments, result]
-    );
-  }
-  // Also update parent interview status to 'completed'
-  await dbRun("UPDATE interviews SET status = 'completed' WHERE id = ?", [interviewId]);
-  return await getInterviewFeedback(interviewId);
+  const feedback = await InterviewFeedback.findOneAndUpdate({ interviewId }, { $set: { communicationScore, technicalScore, confidenceScore, problemSolvingScore, overallRating, comments, result, submittedAt: new Date() }, $setOnInsert: { id: generateUUID(), interviewId } }, { upsert: true, new: true, runValidators: true });
+  await Interview.updateOne({ id: interviewId }, { status: "completed", meetingStatus: "completed" }); return feedbackDto(feedback);
 }
-
-async function getInterviewFeedback(interviewId) {
-  return await dbGet("SELECT * FROM interview_feedback WHERE interview_id = ?", [interviewId]);
-}
-
-async function saveInterviewChatMessage(interviewId, senderId, message) {
-  const id = generateUUID();
-  await dbRun(
-    "INSERT INTO interview_chat (id, interview_id, sender_id, message) VALUES (?, ?, ?, ?)",
-    [id, interviewId, senderId, message]
-  );
-  return { id, interviewId, senderId, message, timestamp: new Date().toISOString() };
-}
-
+async function getInterviewFeedback(interviewId) { return feedbackDto(await InterviewFeedback.findOne({ interviewId })); }
+async function saveInterviewChatMessage(interviewId, senderId, message) { return InterviewChat.create({ interviewId, senderId, message }).then(x => x.toObject()); }
 async function getInterviewChatMessages(interviewId) {
-  return await dbAll(
-    `SELECT c.*, u.full_name as sender_name, u.role as sender_role 
-     FROM interview_chat c 
-     JOIN users u ON c.sender_id = u.id 
-     WHERE c.interview_id = ? 
-     ORDER BY c.timestamp ASC`,
-    [interviewId]
-  );
+  const xs = await InterviewChat.find({ interviewId }).sort({ timestamp: 1 }).lean();
+  return Promise.all(xs.map(async x => { const sender = await User.findOne({ id: x.senderId }).lean(); return { ...x, sender_name: sender?.fullName, sender_role: sender?.role }; }));
+}
+async function saveInterviewHistory(interviewId, studentJoinedAt, hrJoinedAt, endedAt, durationSeconds) { return InterviewHistory.create({ interviewId, studentJoinedAt, hrJoinedAt, endedAt, durationSeconds }).then(x => x.toObject()); }
+async function getAllInterviewsForAdmin() { const xs = await Interview.find().sort({ scheduledDate: -1, scheduledTime: -1 }); return Promise.all(xs.map(hydrateInterview)); }
+async function getAIInterviewSession(interviewId) { return AIInterviewSession.findOne({ interviewId }).lean(); }
+async function startAIInterviewSession(interviewId, studentId, firstQuestion) {
+  return AIInterviewSession.findOneAndUpdate({ interviewId }, {
+    $setOnInsert: { id: generateUUID(), interviewId, studentId, status: "active", questionCount: 1, currentQuestion: firstQuestion,
+      messages: [{ speaker: "ai", text: firstQuestion, createdAt: new Date() }], startedAt: new Date() }
+  }, { upsert: true, new: true, runValidators: true }).lean();
+}
+async function addAIInterviewTurn(interviewId, answer, nextQuestion) {
+  const messages = [{ speaker: "candidate", text: answer, createdAt: new Date() }];
+  if (nextQuestion) messages.push({ speaker: "ai", text: nextQuestion, createdAt: new Date() });
+  return AIInterviewSession.findOneAndUpdate({ interviewId, status: "active" }, {
+    $push: { messages: { $each: messages } },
+    ...(nextQuestion ? { $set: { currentQuestion: nextQuestion }, $inc: { questionCount: 1 } } : {})
+  }, { new: true, runValidators: true }).lean();
+}
+async function completeAIInterviewSession(interviewId, answer, evaluation) {
+  return AIInterviewSession.findOneAndUpdate({ interviewId, status: "active" }, {
+    $push: { messages: { speaker: "candidate", text: answer, createdAt: new Date() } },
+    $set: { status: "completed", evaluation, completedAt: new Date(), currentQuestion: "" }
+  }, { new: true, runValidators: true }).lean();
 }
 
-async function saveInterviewHistory(interviewId, studentJoinedAt, hrJoinedAt, endedAt, durationSeconds) {
-  const id = generateUUID();
-  await dbRun(
-    `INSERT INTO interview_history (id, interview_id, student_joined_at, hr_joined_at, ended_at, duration_seconds) 
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, interviewId, studentJoinedAt, hrJoinedAt, endedAt, durationSeconds]
-  );
-  return { id, interviewId, studentJoinedAt, hrJoinedAt, endedAt, durationSeconds };
-}
-
-async function getAllInterviewsForAdmin() {
-  const rows = await dbAll(
-    `SELECT i.*, 
-            hr.full_name as hr_name, hr.company_name,
-            std.full_name as student_name, std.email as student_email 
-     FROM interviews i
-     JOIN users hr ON i.hr_id = hr.id
-     JOIN users std ON i.student_id = std.id
-     ORDER BY i.scheduled_date DESC, i.scheduled_time DESC`
-  );
-  return rows.map(formatInterview);
-}
-
-module.exports = {
-  db,
-  initDb,
-  
-  // Auth
-  getUserByEmail,
-  getUserById,
-  getUserByUsername,
-  createUser,
-  updateUserProfile,
-  updateUserStreakAndActive,
-  deleteUser,
-  deleteAllUsers,
-  getAllStudents,
-
-  // Results
-  getResultsHistory,
-  getAllResults,
-  saveResult,
-  deleteResultsByUsername,
-  deleteAllResults,
-
-  // Bookmarks
-  getBookmarks,
-  saveBookmark,
-  deleteBookmarksByUsername,
-  deleteAllBookmarks,
-
-  // Notes
-  getNotes,
-  saveNote,
-  deleteNotesByUsername,
-  deleteAllNotes,
-
-  // Settings
-  getRecruitmentSettings,
-  saveRecruitmentSettings,
-
-  // Recruitment Rounds & Candidate status
-  getRecruitmentRounds,
-  saveRecruitmentRound,
-  getCandidateStatusByUsername,
-  getAllCandidateStatus,
-  saveCandidateStatus,
-  publishCandidateStatus,
-  deleteCandidateStatusByUsername,
-  deleteAllCandidateStatus,
-
-  // Placement
-  getPlacementCompanies,
-  savePlacementCompany,
-  deleteCompany,
-  deleteAllCompanies,
-  
-  getPlacementDrives,
-  createPlacementDrive,
-  publishPlacementDrive,
-  savePlacementDriveRounds,
-  deleteDrive,
-  deleteAllDrives,
-  
-  getPlacementRegistrations,
-  registerForDrive,
-  getRegistrationsForDrive,
-  deleteRegistrationsByUsername,
-  deleteRegistrationsByDriveId,
-  deleteAllRegistrations,
-  
-  getPlacementProgress,
-  getPlacementCandidates,
-  savePlacementProgress,
-  publishPlacementProgress,
-  deletePlacementProgressByUsername,
-  deletePlacementProgressByDriveId,
-  deleteAllPlacementProgress,
-  
-  getPlacementQuestions,
-  savePlacementQuestions,
-
-  // Live Interviews
-  createInterview,
-  getInterviewById,
-  getInterviewByMeetingId,
-  getInterviewsForStudent,
-  getInterviewsForHR,
-  updateInterviewStatus,
-  saveInterviewFeedback,
-  getInterviewFeedback,
-  saveInterviewChatMessage,
-  getInterviewChatMessages,
-  saveInterviewHistory,
-  getAllInterviewsForAdmin
-};
+module.exports = { mongoose, initDb, closeDb, getUserByEmail, getUserById, getUserByUsername, createUser, updateUserProfile,
+  updateUserStreakAndActive, deleteUser, deleteAllUsers, getAllStudents, getResultsHistory, getAllResults, saveResult,
+  deleteResultsByUsername, deleteAllResults, getBookmarks, saveBookmark, deleteBookmarksByUsername, deleteAllBookmarks,
+  getNotes, saveNote, deleteNotesByUsername, deleteAllNotes, getRecruitmentSettings, saveRecruitmentSettings,
+  getRecruitmentRounds, saveRecruitmentRound, getCandidateStatusByUsername, getAllCandidateStatus, saveCandidateStatus,
+  publishCandidateStatus, deleteCandidateStatusByUsername, deleteAllCandidateStatus, getPlacementCompanies, savePlacementCompany,
+  deleteCompany, deleteAllCompanies, getPlacementDrives, createPlacementDrive, publishPlacementDrive, completePlacementDrive,
+  savePlacementDriveRounds, deleteDrive, deleteAllDrives, getPlacementRegistrations, registerForDrive, getRegistrationsForDrive,
+  deleteRegistrationsByUsername, deleteRegistrationsByDriveId, deleteAllRegistrations, getPlacementProgress, getPlacementCandidates,
+  savePlacementProgress, publishPlacementProgress, deletePlacementProgressByUsername, deletePlacementProgressByDriveId,
+  deleteAllPlacementProgress, getPlacementQuestions, savePlacementQuestions, createInterview, getInterviewById,
+  getInterviewByMeetingId, getInterviewsForStudent, getInterviewsForHR, updateInterviewStatus, saveInterviewFeedback,
+  respondToInterviewInvitation,
+  getInterviewFeedback, saveInterviewChatMessage, getInterviewChatMessages, saveInterviewHistory, getAllInterviewsForAdmin,
+  getAIInterviewSession, startAIInterviewSession, addAIInterviewTurn, completeAIInterviewSession };

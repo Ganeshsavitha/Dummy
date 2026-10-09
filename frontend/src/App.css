@@ -17,6 +17,40 @@
   }
 }
 
+.ai-interview-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(340px, .75fr); gap: 20px; min-height: 680px; }
+.ai-video-stage { position: relative; overflow: hidden; border-radius: 18px; min-height: 620px; background: radial-gradient(circle at 50% 30%, #29335c, #090d1b 70%); border: 1px solid var(--border-color); }
+.ai-candidate-video { position: absolute; right: 20px; bottom: 20px; width: 220px; aspect-ratio: 16/10; object-fit: cover; transform: scaleX(-1); border-radius: 14px; border: 2px solid rgba(255,255,255,.35); background: #111827; z-index: 2; }
+.ai-avatar-card { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; }
+.ai-avatar { width: 150px; height: 150px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: linear-gradient(145deg, #6366f1, #8b5cf6); box-shadow: 0 0 0 18px rgba(99,102,241,.12), 0 24px 80px rgba(99,102,241,.35); transition: transform .25s ease; }
+.ai-avatar-card.speaking .ai-avatar { animation: aiPulse 1s ease-in-out infinite; }
+.ai-avatar-card.listening .ai-avatar { box-shadow: 0 0 0 18px rgba(16,185,129,.14), 0 24px 80px rgba(16,185,129,.28); }
+.ai-avatar-name { margin-top: 28px; display: flex; align-items: center; gap: 7px; font-size: 1.2rem; font-weight: 750; }
+.ai-avatar-status { min-height: 24px; margin-top: 10px; display: flex; align-items: center; gap: 7px; color: #cbd5e1; }
+.ai-camera-label { position: absolute; right: 30px; bottom: 190px; z-index: 3; display: flex; gap: 6px; align-items: center; padding: 5px 10px; border-radius: 20px; color: white; background: rgba(0,0,0,.55); font-size: .78rem; }
+.ai-interview-panel { display: flex; flex-direction: column; gap: 18px; padding: 24px; }
+.ai-progress { display: flex; flex-direction: column; gap: 8px; color: var(--text-muted); font-size: .82rem; }
+.ai-progress progress { width: 100%; accent-color: var(--primary); }
+.ai-question { display: flex; align-items: flex-start; gap: 12px; border-radius: 14px; padding: 18px; background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.18); }
+.ai-question p { margin: 0; font-size: 1.02rem; line-height: 1.65; }
+.ai-consent-note { margin: 0; color: var(--text-muted); font-size: .76rem; line-height: 1.5; }
+.ai-answer { min-height: 190px; resize: vertical; line-height: 1.55; }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.ai-actions button { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.ai-error { padding: 10px 12px; border-radius: 8px; color: #fecaca; background: rgba(239,68,68,.12); font-size: .82rem; }
+.ai-interview-report { max-width: 960px; margin: 20px auto; text-align: center; padding: 34px; }
+.ai-score-ring { width: 112px; height: 112px; display: grid; place-items: center; margin: 18px auto; border-radius: 50%; border: 9px solid var(--primary); font-size: 1.7rem; font-weight: 800; }
+.ai-score-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0; }
+.ai-score-grid span { display: flex; flex-direction: column; gap: 7px; padding: 16px; border-radius: 12px; background: rgba(99,102,241,.07); }
+.ai-feedback-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0; text-align: left; }
+.ai-feedback-grid section { padding: 18px; border: 1px solid var(--border-color); border-radius: 12px; }
+.ai-feedback-grid h3 { margin-top: 0; font-size: 1rem; }
+.ai-feedback-grid li { margin-bottom: 8px; color: var(--text-muted); line-height: 1.45; }
+.spin { animation: aiSpin .9s linear infinite; }
+@keyframes aiPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+@keyframes aiSpin { to { transform: rotate(360deg); } }
+@media (max-width: 900px) { .ai-interview-layout { grid-template-columns: 1fr; } .ai-video-stage { min-height: 430px; } .ai-score-grid, .ai-feedback-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .ai-candidate-video { width: 145px; } .ai-camera-label { bottom: 145px; } .ai-score-grid, .ai-feedback-grid { grid-template-columns: 1fr; } }
+
 .hero {
   position: relative;
 

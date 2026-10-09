@@ -3,20 +3,36 @@ services:
     name: hiregrad-ai
     env: node
     plan: free
-    buildCommand: npm install && npm rebuild sqlite3 --build-from-source && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_VERSION
         value: 20
-      - key: DATABASE_PATH
-        value: /var/data/hiregrad.db
+      - key: NODE_ENV
+        value: production
+      - key: ENABLE_DEMO_SEED
+        value: "false"
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_TIMEOUT_MS
+        value: "10000"
+      - key: MONGODB_MAX_POOL_SIZE
+        value: "20"
       - key: JWT_SECRET
         generateValue: true
       - key: GEMINI_API_KEY
         sync: false
       - key: GROQ_API_KEY
         sync: false
-    disk:
-      name: hiregrad-data
-      mountPath: /var/data
-      sizeGB: 1
+      - key: GROQ_API_KEYS
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-20b
+      - key: AI_TIMEOUT_MS
+        value: "30000"

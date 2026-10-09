@@ -1,19 +1,21 @@
 {
   "name": "hiregrad-ai",
   "version": "1.0.0",
-  "description": "",
+  "description": "Secure AI-powered campus recruitment and interview platform",
   "main": "server.js",
   "engines": {
     "node": "20.x"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "postinstall": "npm rebuild sqlite3 --build-from-source && npm install --prefix frontend && npm run build --prefix frontend",
-    "build": "npm rebuild sqlite3 --build-from-source && npm install --prefix frontend && npm run build --prefix frontend",
+    "test": "node --test",
+    "test:smoke": "node scripts/system-smoke.js",
+    "verify:groq": "node scripts/verify-groq.js",
+    "test:e2e:ai": "node scripts/e2e-ai-interview.js",
+    "build": "npm install --prefix frontend --include=dev && npm run build --prefix frontend",
     "start": "node server.js"
   },
   "keywords": [],
-  "author": "",
+  "author": "Savitha G",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
@@ -24,7 +26,7 @@
     "express": "^5.2.1",
     "groq-sdk": "^1.3.0",
     "jsonwebtoken": "^9.0.3",
-    "socket.io": "^4.8.3",
-    "sqlite3": "^6.0.1"
+    "mongoose": "^8.19.1",
+    "socket.io": "^4.8.3"
   }
 }

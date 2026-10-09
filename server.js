@@ -8,11 +8,15 @@ require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-const JWT_SECRET = process.env.JWT_SECRET || "hiregrad-jwt-secret-key-12345";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const JWT_SECRET = process.env.JWT_SECRET || (IS_PRODUCTION ? null : "development-only-change-me");
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET must be configured in production.");
+}
 
-// Import SQLite database operations
+// Import MongoDB/Mongoose database operations
 const db = require("./db");
-db.initDb().then(() => {
+const dbReady = db.initDb().then(() => {
   console.log("Database initialized and seeded. 🚀");
 }).catch(err => {
   console.error("Database initialization failed:", err);
@@ -21,28 +25,235 @@ db.initDb().then(() => {
 
 const app = express();
 
-app.use(cors());
-app.use(express.json({ limit: "50mb" })); // Allow large base64 uploads for resumes
+app.disable("x-powered-by");
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map(origin => origin.trim())
+  .filter(Boolean);
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || !IS_PRODUCTION || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Origin is not allowed by CORS policy."));
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(self), microphone=(self), geolocation=()");
+  if (IS_PRODUCTION) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  next();
+});
+app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "frontend/dist")));
+
+// Small in-process limiter. A shared Redis-backed limiter should replace this
+// when the service is horizontally scaled.
+const requestBuckets = new Map();
+app.use("/api", (req, res, next) => {
+  const now = Date.now();
+  const key = req.ip || req.socket.remoteAddress || "unknown";
+  const current = requestBuckets.get(key);
+  if (!current || now - current.startedAt > 60_000) {
+    requestBuckets.set(key, { startedAt: now, count: 1 });
+    return next();
+  }
+  current.count += 1;
+  if (current.count > 180) return res.status(429).json({ success: false, message: "Too many requests." });
+  next();
+});
+
+function authenticateJWT(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const [scheme, token] = authHeader.split(" ");
+  if (scheme !== "Bearer" || !token) {
+    return res.status(401).json({ success: false, message: "A Bearer token is required." });
+  }
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) return res.status(401).json({ success: false, message: "Invalid or expired token." });
+    req.user = decoded;
+    next();
+  });
+}
+
+function requireRole(...roles) {
+  return (req, res, next) => roles.includes(req.user?.role)
+    ? next()
+    : res.status(403).json({ success: false, message: "You are not authorized for this operation." });
+}
+
+function getInterviewJoinWindow(interview, now = new Date()) {
+  const scheduledAt = new Date(`${interview.date}T${interview.time}:00`);
+  const valid = !Number.isNaN(scheduledAt.getTime());
+  const opensAt = valid ? new Date(scheduledAt.getTime() - 15 * 60 * 1000) : null;
+  const closesAt = valid ? new Date(scheduledAt.getTime() + (Number(interview.duration) + 15) * 60 * 1000) : null;
+  return { valid, open: valid && now >= opensAt && now <= closesAt, opensAt, closesAt };
+}
+
+const publicApiRoutes = new Set([
+  "GET /api/health",
+  "POST /api/auth/register", "POST /api/auth/login",
+  "POST /api/placement/auth/register", "POST /api/placement/auth/login",
+  "POST /api/placement/auth/student-login", "GET /api/placement/network-info",
+  "GET /api/placement/drives"
+]);
+app.use("/api", (req, res, next) => {
+  const routePath = req.originalUrl.split("?")[0];
+  if (publicApiRoutes.has(`${req.method} ${routePath}`)) return next();
+  return authenticateJWT(req, res, next);
+});
+
+app.use("/api/admin", requireRole("admin"));
+app.use("/api/recruitment", (req, res, next) => {
+  if (req.method === "GET" && req.user?.role === "student") return next();
+  return requireRole("hr", "admin")(req, res, next);
+});
+
+app.use("/api/placement", async (req, res, next) => {
+  // Public placement routes were already allow-listed above.
+  if (!req.user) return next();
+  const routePath = req.originalUrl.split("?")[0];
+  const hrWriteRoutes = [
+    "/api/placement/drives", "/api/placement/drives/publish",
+    "/api/placement/rounds/save", "/api/placement/questions/save",
+    "/api/placement/questions/generate", "/api/placement/questions/upload-pdf",
+    "/api/placement/session/start", "/api/placement/session/terminate",
+    "/api/placement/session/publish"
+  ];
+  if (req.method !== "GET" && hrWriteRoutes.includes(routePath)) {
+    if (!["hr", "admin"].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: "Recruiters or administrators only." });
+    }
+    if (req.user.role === "hr") {
+      const ownerUsername = req.user.email.split("@")[0];
+      const driveId = req.body?.driveId || req.body?.id;
+      if (routePath === "/api/placement/drives") req.body.companyUsername = ownerUsername;
+      if (driveId) {
+        try {
+          const drive = (await db.getPlacementDrives()).find(item => item.id === driveId);
+          if (drive && drive.company_username !== ownerUsername && drive.companyUsername !== ownerUsername) {
+            return res.status(403).json({ success: false, message: "You do not own this placement drive." });
+          }
+        } catch (error) {
+          return next(error);
+        }
+      }
+    }
+    return next();
+  }
+  if (req.method === "GET" && /^\/api\/placement\/candidates\//.test(routePath)) {
+    return requireRole("hr", "admin")(req, res, next);
+  }
+  if (["/api/placement/register", "/api/placement/profile/save", "/api/placement/session/submit", "/api/placement/resume/scan"].includes(routePath)) {
+    if (req.user.role !== "student") return res.status(403).json({ success: false, message: "Students only." });
+  }
+  const username = req.body?.username || routePath.match(/^\/api\/placement\/(?:registrations|progress)\/([^/]+)$/)?.[1];
+  if (req.user.role === "student" && username && username !== req.user.email.split("@")[0]) {
+    return res.status(403).json({ success: false, message: "You cannot access another student's data." });
+  }
+  next();
+});
+
+// Student-owned learning data must never be readable or writable by another
+// authenticated account. The username in legacy endpoints is retained for
+// client compatibility, but the JWT remains the source of truth.
+app.use("/api", (req, res, next) => {
+  const routePath = req.originalUrl.split("?")[0];
+  const studentOnlyPaths = new Set([
+    "/api/generate-question", "/api/evaluate-answer", "/api/evaluate-code-review",
+    "/api/analyze-resume", "/api/generate-roadmap", "/api/evaluate-code",
+    "/api/results/save", "/api/notes/save", "/api/bookmarks/save"
+  ]);
+  const ownedPathMatch = routePath.match(/^\/api\/(?:results\/history|notes|bookmarks)\/([^/]+)$/);
+
+  if (studentOnlyPaths.has(routePath)) {
+    if (req.user?.role !== "student") {
+      return res.status(403).json({ success: false, message: "Students only." });
+    }
+    const requestedUsername = req.body?.username;
+    const authenticatedUsername = req.user.email.split("@")[0];
+    if (requestedUsername && requestedUsername !== authenticatedUsername) {
+      return res.status(403).json({ success: false, message: "You cannot modify another student's data." });
+    }
+    if (["/api/results/save", "/api/notes/save", "/api/bookmarks/save"].includes(routePath)) {
+      req.body.username = authenticatedUsername;
+    }
+  }
+
+  if (ownedPathMatch) {
+    if (req.user?.role !== "student" || ownedPathMatch[1] !== req.user.email.split("@")[0]) {
+      return res.status(403).json({ success: false, message: "You cannot access another student's data." });
+    }
+  }
+  next();
+});
 
 // ========================================================
 // 1. UNIFIED GEMINI / GROQ CLIENT ADAPTER
 // ========================================================
+app.get("/api/health", async (req, res) => {
+  try {
+    await dbReady;
+    const connected = db.mongoose.connection.readyState === 1;
+    res.status(connected ? 200 : 503).json({ status: connected ? "ok" : "unavailable", database: connected ? "connected" : "disconnected", timestamp: new Date().toISOString() });
+  } catch {
+    res.status(503).json({ status: "unavailable", database: "disconnected" });
+  }
+});
+
+const isValidEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+const isStrongEnoughPassword = value => typeof value === "string" && value.length >= 8 && value.length <= 128;
 const hasGemini = !!process.env.GEMINI_API_KEY;
-const hasGroq = !!process.env.GROQ_API_KEY;
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-20b";
+const groqKeys = [...new Set([
+  ...(process.env.GROQ_API_KEYS || "").split(","),
+  ...(process.env.GROQ_API_KEY || "").split(","),
+  ...Object.entries(process.env)
+    .filter(([name]) => /^GROQ_API_KEY_\d+$/.test(name))
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+    .map(([, value]) => value)
+].map(value => String(value || "").trim()).filter(Boolean))];
+const hasGroq = groqKeys.length > 0;
 
 console.log("AI Services Status:");
 console.log("- Gemini API status:", hasGemini ? "AVAILABLE ✅" : "NOT CONFIGURED ❌");
 console.log("- Groq API status:", hasGroq ? "AVAILABLE ✅" : "NOT CONFIGURED ❌");
 
 let genAI = null;
-let groq = null;
+let groqClients = [];
+const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 30_000);
+const withTimeout = (promise, timeoutMs, label) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(`${label} timed out.`)), timeoutMs);
+  promise.then(
+    value => { clearTimeout(timer); resolve(value); },
+    error => { clearTimeout(timer); reject(error); }
+  );
+});
 
 if (hasGemini) {
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 }
 if (hasGroq) {
-  groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  groqClients = groqKeys.map(apiKey => new Groq({ apiKey }));
+}
+
+async function runGroqRequest(createRequest) {
+  let lastError;
+  for (const client of groqClients) {
+    try {
+      return await createRequest(client);
+    } catch (error) {
+      lastError = error;
+      const status = error?.status;
+      const code = error?.error?.error?.code || error?.error?.code;
+      // Fail over only for invalid/revoked credentials or transient provider
+      // failures. A 429 is organization-level and must not be bypassed.
+      if (![401, 403, 500, 502, 503, 504].includes(status) && !["expired_api_key", "invalid_api_key"].includes(code)) throw error;
+    }
+  }
+  throw lastError || new Error("No Groq client is available.");
 }
 
 /**
@@ -59,7 +270,7 @@ async function getAICompletion(prompt, systemPrompt = "", isJson = false) {
       });
 
       const fullPrompt = systemPrompt ? `${systemPrompt}\n\nUser Request:\n${prompt}` : prompt;
-      const result = await model.generateContent(fullPrompt);
+      const result = await withTimeout(model.generateContent(fullPrompt), AI_TIMEOUT_MS, "Gemini request");
       const response = await result.response;
       return response.text();
     } catch (geminiError) {
@@ -76,17 +287,31 @@ async function getAICompletion(prompt, systemPrompt = "", isJson = false) {
     }
     messages.push({ role: "user", content: prompt });
 
-    const completion = await groq.chat.completions.create({
+    const completion = await runGroqRequest(client => withTimeout(client.chat.completions.create({
       messages: messages,
-      model: "llama-3.1-8b-instant",
+      model: GROQ_MODEL,
       response_format: isJson ? { type: "json_object" } : undefined,
       temperature: 0.7,
       max_tokens: 1500
-    });
+    }), AI_TIMEOUT_MS, "Groq request"));
     return completion.choices[0].message.content;
   }
 
   throw new Error("No AI API Keys are configured. Please check your .env settings.");
+}
+
+async function getGroqJSON(prompt, systemPrompt) {
+  if (!groqClients.length) throw new Error("No Groq API key is configured.");
+  const completion = await runGroqRequest(client => withTimeout(client.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [{ role: "system", content: systemPrompt }, { role: "user", content: prompt }],
+    response_format: { type: "json_object" },
+    temperature: 0.45,
+    max_tokens: 1400
+  }), AI_TIMEOUT_MS, "Groq AI interview request"));
+  const parsed = JSON.parse(String(completion.choices[0]?.message?.content || "{}").replace(/```json|```/g, "").trim());
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Groq returned an invalid interview response.");
+  return parsed;
 }
 
 function safeParseJSON(str) {
@@ -165,7 +390,7 @@ function safeParseJSON(str) {
 
 // Serving Landing Page
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
+  res.sendFile(path.join(__dirname, "frontend/dist", "index.html"));
 });
 
 // -- Authentication APIs (Vanilla/Fallback compatibility) --
@@ -174,6 +399,7 @@ app.post("/api/auth/register", async (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ success: false, message: "Username and password required." });
   }
+  if (!isStrongEnoughPassword(password)) return res.status(400).json({ success: false, message: "Password must contain 8 to 128 characters." });
 
   const email = username.includes("@") ? username : `${username}@example.com`;
 
@@ -186,8 +412,10 @@ app.post("/api/auth/register", async (req, res) => {
     const hashedPassword = bcrypt.hashSync(password, 10);
     const user = await db.createUser(fullName || username, email, hashedPassword, 'student');
 
-    res.json({
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: "24h" });
+    res.status(201).json({
       success: true,
+      token,
       user: {
         username: user.email.split("@")[0],
         fullName: user.full_name,
@@ -245,8 +473,10 @@ app.post("/api/auth/login", async (req, res) => {
       }
     }
 
+    const token = jwt.sign({ id: row.id, email: row.email, role: row.role }, JWT_SECRET, { expiresIn: "24h" });
     res.json({
       success: true,
+      token,
       user: {
         username: resolvedUsername,
         fullName: row.full_name,
@@ -374,7 +604,7 @@ app.post("/api/evaluate-answer", async (req, res) => {
 });
 
 // -- Coding Evaluation API --
-app.post("/api/evaluate-code", async (req, res) => {
+app.post("/api/evaluate-code-review", async (req, res) => {
   try {
     const { question, answer, language } = req.body;
     const systemPrompt = "You are an automated static analysis code checker.";
@@ -682,29 +912,14 @@ app.post("/api/bookmarks/save", async (req, res) => {
   }
 });
 
-// JWT Authentication Middleware
-function authenticateJWT(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (authHeader) {
-    const token = authHeader.split(" ")[1];
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
-      if (err) {
-        return res.status(403).json({ success: false, message: "Invalid or expired token." });
-      }
-      req.user = decoded;
-      next();
-    });
-  } else {
-    res.status(401).json({ success: false, message: "Authorization header missing." });
-  }
-}
-
 // -- Campus Placement Assessment APIs --
 app.post("/api/placement/auth/register", async (req, res) => {
   const { fullName, email, password, role } = req.body;
   if (!fullName || !email || !password || !role) {
     return res.status(400).json({ success: false, message: "Missing registration details." });
   }
+  if (!isValidEmail(email)) return res.status(400).json({ success: false, message: "A valid email address is required." });
+  if (!isStrongEnoughPassword(password)) return res.status(400).json({ success: false, message: "Password must contain 8 to 128 characters." });
   
   const dbRole = role === 'company' ? 'hr' : role;
   
@@ -876,7 +1091,8 @@ app.get("/api/placement/auth/me", authenticateJWT, async (req, res) => {
 // -- Campus Placement Assessment Drives Management APIs --
 app.get("/api/placement/drives", async (req, res) => {
   try {
-    const drives = await db.getPlacementDrives();
+    let drives = await db.getPlacementDrives();
+    if (!req.user) drives = drives.filter(drive => drive.status === "Active");
     res.json({ success: true, drives });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -988,6 +1204,9 @@ app.post("/api/placement/profile/save", async (req, res) => {
     }
     
     const newCgpa = cgpa !== undefined ? parseFloat(cgpa) : student.cgpa;
+    if (!Number.isFinite(newCgpa) || newCgpa < 0 || newCgpa > 10) {
+      return res.status(400).json({ success: false, message: "CGPA must be between 0 and 10." });
+    }
     const newDept = department !== undefined ? department : student.department;
     const newSkills = skills !== undefined ? skills : JSON.parse(student.skills || '[]');
     
@@ -1269,12 +1488,7 @@ app.post("/api/placement/session/start", async (req, res) => {
 app.post("/api/placement/session/terminate", async (req, res) => {
   const { driveId } = req.body;
   try {
-    await new Promise((resolve, reject) => {
-      db.db.run("UPDATE placement_drives SET status = 'Completed' WHERE id = ?", [driveId], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    await db.completePlacementDrive(driveId);
     io.emit("assessment-terminated", { driveId });
     res.json({ success: true, message: "Live session terminated" });
   } catch (err) {
@@ -1291,6 +1505,10 @@ app.post("/api/placement/session/submit", async (req, res) => {
     
     const roundIndex = drive.rounds.findIndex(r => r.id === roundId);
     const round = drive.rounds[roundIndex];
+    if (!round) return res.status(404).json({ success: false, message: "Assessment round not found." });
+    if (!Number.isFinite(Number(score)) || !Number.isFinite(Number(total)) || Number(total) <= 0 || Number(score) < 0 || Number(score) > Number(total)) {
+      return res.status(400).json({ success: false, message: "Score and total are invalid." });
+    }
     const scorePercent = (score / total) * 100;
     
     let status = "Qualified";
@@ -1370,6 +1588,12 @@ app.post("/api/placement/interviews/schedule", authenticateJWT, async (req, res)
   if (!studentId || !date || !time || !duration || !type || !meetingId) {
     return res.status(400).json({ success: false, message: "Missing scheduling fields." });
   }
+  if (!["Technical", "HR", "Managerial"].includes(type)) {
+    return res.status(400).json({ success: false, message: "Invalid interview type." });
+  }
+  if (!Number.isInteger(Number(duration)) || Number(duration) < 5 || Number(duration) > 120) {
+    return res.status(400).json({ success: false, message: "Duration must be between 5 and 120 minutes." });
+  }
 
   try {
     const interview = await db.createInterview(meetingId, req.user.id, studentId, date, time, duration, type);
@@ -1381,6 +1605,32 @@ app.post("/api/placement/interviews/schedule", authenticateJWT, async (req, res)
     res.json({ success: true, interview });
   } catch (err) {
     console.error("Error scheduling interview:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// The selected student alone can accept or decline an HR interview invite.
+app.post("/api/placement/interviews/:id/respond", authenticateJWT, async (req, res) => {
+  const { response } = req.body;
+  if (req.user.role !== "student") {
+    return res.status(403).json({ success: false, message: "Only the invited student can respond." });
+  }
+  if (!["accepted", "declined"].includes(response)) {
+    return res.status(400).json({ success: false, message: "Response must be accepted or declined." });
+  }
+  try {
+    const existing = await db.getInterviewById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: "Interview not found." });
+    if (existing.studentId !== req.user.id) {
+      return res.status(403).json({ success: false, message: "This invitation is not assigned to you." });
+    }
+    if (["ongoing", "completed", "cancelled"].includes(existing.status)) {
+      return res.status(409).json({ success: false, message: "This interview can no longer be changed." });
+    }
+    const interview = await db.respondToInterviewInvitation(req.params.id, response);
+    io.to(`hr_${interview.hrId}`).emit("interview-invitation-response", { interviewId: interview.id, response, interview });
+    res.json({ success: true, interview });
+  } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -1423,6 +1673,14 @@ app.get("/api/placement/interviews/:meetingId/verify", authenticateJWT, async (r
     if (!interview) {
       console.warn(`[Join Auth Check] Rejecting join request: Meeting ID ${meetingId} not found`);
       return res.status(404).json({ success: false, message: "Meeting not found." });
+    }
+    if (interview.invitationStatus !== "accepted") {
+      return res.status(409).json({ success: false, message: interview.invitationStatus === "declined" ? "This invitation was declined." : "The student must accept this invitation before the meeting can be joined." });
+    }
+
+    const joinWindow = getInterviewJoinWindow(interview);
+    if (!joinWindow.open) {
+      return res.status(403).json({ success: false, message: `This meeting opens 15 minutes before ${interview.date} at ${interview.time}.` });
     }
     
     console.log(`[Join Auth Check] Found Interview metadata: 
@@ -1469,6 +1727,16 @@ app.post("/api/placement/interviews/:id/status", authenticateJWT, async (req, re
   }
 
   try {
+    const existing = await db.getInterviewById(id);
+    if (!existing) return res.status(404).json({ success: false, message: "Interview not found." });
+    if (existing.invitationStatus !== "accepted" && status !== "cancelled") {
+      return res.status(409).json({ success: false, message: "The student must accept the invitation first." });
+    }
+    const ownsInterview = req.user.role === "admin" || existing.hrId === req.user.id || existing.studentId === req.user.id;
+    if (!ownsInterview) return res.status(403).json({ success: false, message: "You are not assigned to this interview." });
+    if (req.user.role === "student" && !["waiting", "cancelled"].includes(status)) {
+      return res.status(403).json({ success: false, message: "Students cannot set this interview status." });
+    }
     const interview = await db.updateInterviewStatus(id, status);
     
     // Broadcast status change to the student and to the meeting room
@@ -1500,6 +1768,9 @@ app.post("/api/placement/interviews/:id/evaluate", authenticateJWT, async (req, 
   }
 
   try {
+    const interview = await db.getInterviewById(id);
+    if (!interview) return res.status(404).json({ success: false, message: "Interview not found." });
+    if (interview.hrId !== req.user.id) return res.status(403).json({ success: false, message: "You are not the assigned interviewer." });
     const feedback = await db.saveInterviewFeedback(
       id,
       parseInt(communicationScore),
@@ -1521,10 +1792,125 @@ app.get("/api/placement/interviews/:id/feedback", authenticateJWT, async (req, r
   const { id } = req.params;
 
   try {
+    const interview = await db.getInterviewById(id);
+    if (!interview) return res.status(404).json({ success: false, message: "Interview not found." });
+    const canRead = req.user.role === "admin" || interview.hrId === req.user.id || interview.studentId === req.user.id;
+    if (!canRead) return res.status(403).json({ success: false, message: "You cannot view this feedback." });
     const feedback = await db.getInterviewFeedback(id);
     res.json({ success: true, feedback });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Groq-powered AI HR interview. It follows the same scheduled -> waiting ->
+// ongoing -> completed lifecycle as a human interview.
+async function requireAssignedAIInterview(req, res) {
+  const interview = await db.getInterviewById(req.params.id);
+  if (!interview) {
+    res.status(404).json({ success: false, message: "Interview not found." });
+    return null;
+  }
+  if (req.user.role !== "student" || interview.studentId !== req.user.id) {
+    res.status(403).json({ success: false, message: "Only the assigned candidate can run this AI interview." });
+    return null;
+  }
+  if (String(interview.type).toLowerCase() !== "ai hr") {
+    res.status(400).json({ success: false, message: "This schedule is not an AI HR interview." });
+    return null;
+  }
+  return interview;
+}
+
+app.post("/api/placement/interviews/:id/ai/start", async (req, res) => {
+  try {
+    const interview = await requireAssignedAIInterview(req, res);
+    if (!interview) return;
+    const existing = await db.getAIInterviewSession(interview.id);
+    if (existing) return res.json({ success: true, session: existing, resumed: true });
+
+    const student = await db.getUserById(req.user.id);
+    const profile = {
+      name: student?.full_name || interview.studentName,
+      targetRole: student?.target_role || "Software Engineer",
+      department: student?.department || "Not specified",
+      skills: JSON.parse(student?.skills || "[]").slice(0, 12)
+    };
+    const generated = await getGroqJSON(
+      `Create the opening question for this candidate profile: ${JSON.stringify(profile)}. The interview has exactly five questions.`,
+      `You are HireGrad's professional AI HR interviewer. Be warm, concise and unbiased. Ask one behavioral or role-relevant question at a time. Never assess appearance, accent, gender, disability, ethnicity or other sensitive traits. Return JSON only: {"greeting":"short greeting","question":"one clear opening question"}.`
+    );
+    const question = String(generated.question || "Tell me about yourself and why you are interested in this role.").slice(0, 700);
+    const greeting = String(generated.greeting || `Hello ${profile.name}. Welcome to your AI HR interview.`).slice(0, 300);
+    const session = await db.startAIInterviewSession(interview.id, req.user.id, question);
+    await db.updateInterviewStatus(interview.id, "ongoing");
+    res.json({ success: true, greeting, session });
+  } catch (error) {
+    console.error("AI interview start failed:", error);
+    res.status(502).json({ success: false, message: error.message });
+  }
+});
+
+app.post("/api/placement/interviews/:id/ai/answer", async (req, res) => {
+  try {
+    const interview = await requireAssignedAIInterview(req, res);
+    if (!interview) return;
+    const answer = String(req.body?.answer || "").trim();
+    if (answer.length < 2 || answer.length > 5000) {
+      return res.status(400).json({ success: false, message: "Answer must contain 2 to 5000 characters." });
+    }
+    const session = await db.getAIInterviewSession(interview.id);
+    if (!session) return res.status(409).json({ success: false, message: "Start the AI interview first." });
+    if (session.status === "completed") return res.json({ success: true, completed: true, evaluation: session.evaluation });
+
+    const history = session.messages.slice(-8).map(message => ({ speaker: message.speaker, text: message.text }));
+    if (session.questionCount >= 5) {
+      const evaluation = await getGroqJSON(
+        `Evaluate this completed interview transcript. Transcript: ${JSON.stringify([...history, { speaker: "candidate", text: answer }])}`,
+        `You are a fair interview evaluator. Judge only answer content and communication evidence in the transcript. Do not infer personality or sensitive traits. Return JSON only with this schema: {"communicationScore":1,"technicalScore":1,"confidenceScore":1,"problemSolvingScore":1,"overallRating":1,"strengths":["specific strength"],"weaknesses":["specific improvement"],"improvements":["actionable advice"],"summary":"concise evidence-based summary","recommendation":"selected|hold|rejected"}. Every score must be 1-10.`
+      );
+      const score = value => Math.max(1, Math.min(10, Number(value) || 1));
+      const normalized = {
+        communicationScore: score(evaluation.communicationScore), technicalScore: score(evaluation.technicalScore),
+        confidenceScore: score(evaluation.confidenceScore), problemSolvingScore: score(evaluation.problemSolvingScore),
+        overallRating: score(evaluation.overallRating),
+        strengths: Array.isArray(evaluation.strengths) ? evaluation.strengths.slice(0, 6).map(String) : [],
+        weaknesses: Array.isArray(evaluation.weaknesses) ? evaluation.weaknesses.slice(0, 6).map(String) : [],
+        improvements: Array.isArray(evaluation.improvements) ? evaluation.improvements.slice(0, 6).map(String) : [],
+        summary: String(evaluation.summary || "Interview completed."),
+        recommendation: ["selected", "hold", "rejected"].includes(evaluation.recommendation) ? evaluation.recommendation : "hold"
+      };
+      await db.completeAIInterviewSession(interview.id, answer, normalized);
+      await db.saveInterviewFeedback(interview.id, normalized.communicationScore, normalized.technicalScore,
+        normalized.confidenceScore, normalized.problemSolvingScore, normalized.overallRating,
+        `${normalized.summary}\nStrengths: ${normalized.strengths.join("; ")}\nImprovements: ${normalized.improvements.join("; ")}`,
+        normalized.recommendation);
+      return res.json({ success: true, completed: true, evaluation: normalized });
+    }
+
+    const generated = await getGroqJSON(
+      `Question ${session.questionCount}: ${session.currentQuestion}\nCandidate answer: ${answer}\nRecent transcript: ${JSON.stringify(history)}\nGenerate the next single question.`,
+      `You are a professional AI HR interviewer conducting a five-question interview. Ask a concise adaptive follow-up or move to a different behavioral/role topic. Do not repeat questions. Never assess appearance, accent or sensitive traits. Return JSON only: {"acknowledgement":"one short neutral sentence","question":"one next question"}.`
+    );
+    const nextQuestion = String(generated.question || "Describe a challenging situation and how you handled it.").slice(0, 700);
+    const updated = await db.addAIInterviewTurn(interview.id, answer, nextQuestion);
+    res.json({ success: true, completed: false, acknowledgement: String(generated.acknowledgement || "Thank you.").slice(0, 250), session: updated });
+  } catch (error) {
+    console.error("AI interview answer failed:", error);
+    res.status(502).json({ success: false, message: error.message });
+  }
+});
+
+app.get("/api/placement/interviews/:id/ai/report", async (req, res) => {
+  try {
+    const interview = await db.getInterviewById(req.params.id);
+    if (!interview) return res.status(404).json({ success: false, message: "Interview not found." });
+    const allowed = req.user.role === "admin" || interview.studentId === req.user.id || interview.hrId === req.user.id;
+    if (!allowed) return res.status(403).json({ success: false, message: "You cannot view this report." });
+    const session = await db.getAIInterviewSession(interview.id);
+    res.json({ success: true, session });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
@@ -1648,9 +2034,19 @@ app.delete("/api/admin/companies", async (req, res) => {
   }
 });
 
+app.use("/api", (req, res) => {
+  res.status(404).json({ success: false, message: "API endpoint not found." });
+});
+
 // Fallback client SPA routing
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, "frontend/dist", "index.html"));
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled request error:", err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 500).json({ success: false, message: IS_PRODUCTION ? "Internal server error." : err.message });
 });
 
 // Start HTTP & Sockets Server
@@ -1660,27 +2056,46 @@ const socketIo = require("socket.io");
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "*",
+    origin: IS_PRODUCTION ? allowedOrigins : true,
     methods: ["GET", "POST"]
   }
+});
+
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) return next(new Error("Authentication required."));
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) return next(new Error("Invalid or expired token."));
+    socket.user = decoded;
+    next();
+  });
 });
 
 io.on("connection", (socket) => {
   console.log(`Socket client connected: ${socket.id}`);
 
   socket.on("join-session", ({ username, role, driveId }) => {
+    if (socket.user.role === "student" && role !== "student") return;
+    if (socket.user.role === "hr" && role !== "company") return;
     socket.join(driveId);
     console.log(`${username} joined room for drive: ${driveId}`);
   });
 
   socket.on("candidate-submit", ({ username, driveId, roundId, score, status }) => {
+    if (socket.user.role !== "student" || username !== socket.user.email.split("@")[0]) return;
     io.to(driveId).emit("candidate-update", { username, roundId, score, status });
   });
 
   // Real-Time Student Notification Room Join
   socket.on("join-student-room", ({ studentId }) => {
+    if (socket.user.role !== "student" || socket.user.id !== studentId) return;
     socket.join(`student_${studentId}`);
     console.log(`Student ${studentId} joined personal notification room`);
+  });
+
+  socket.on("join-hr-room", ({ hrId }) => {
+    if (socket.user.role !== "hr" || socket.user.id !== hrId) return;
+    socket.join(`hr_${hrId}`);
   });
 
   // WebRTC Live HR Interview Signaling (Phase 6 & 7)
@@ -1696,6 +2111,14 @@ io.on("connection", (socket) => {
         socket.emit("join-error", { message: "Meeting not found." });
         return;
       }
+      if (interview.invitationStatus !== "accepted") {
+        socket.emit("join-error", { message: "The interview invitation has not been accepted." });
+        return;
+      }
+      if (!getInterviewJoinWindow(interview).open) {
+        socket.emit("join-error", { message: `This meeting opens 15 minutes before ${interview.date} at ${interview.time}.` });
+        return;
+      }
       
       console.log(`[Socket Auth Check] Found Interview metadata:
         - Socket Room: ${formattedRoom}
@@ -1704,8 +2127,10 @@ io.on("connection", (socket) => {
         - Selected Candidate: ${interview.studentName}
         - Assigned HR: ${interview.hrId}`);
       
-      const isHr = userRole === 'hr';
-      const isStudent = userRole === 'student';
+      const isHr = socket.user.role === 'hr';
+      const isStudent = socket.user.role === 'student';
+      userId = socket.user.id;
+      userRole = socket.user.role;
       
       if (isHr) {
         if (interview.hrId !== userId) {
@@ -1748,24 +2173,28 @@ io.on("connection", (socket) => {
 
   socket.on("offer", ({ meetingId, offer }) => {
     const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    if (socket.meetingId !== formattedRoom) return;
     console.log(`Forwarding WebRTC offer for room: ${formattedRoom}`);
     socket.to(formattedRoom).emit("offer", { offer });
   });
 
   socket.on("answer", ({ meetingId, answer }) => {
     const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    if (socket.meetingId !== formattedRoom) return;
     console.log(`Forwarding WebRTC answer for room: ${formattedRoom}`);
     socket.to(formattedRoom).emit("answer", { answer });
   });
 
   socket.on("ice-candidate", ({ meetingId, candidate }) => {
     const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    if (socket.meetingId !== formattedRoom) return;
     console.log(`Forwarding WebRTC ICE candidate for room: ${formattedRoom}`);
     socket.to(formattedRoom).emit("ice-candidate", { candidate });
   });
 
   socket.on("leave-meeting", ({ meetingId }) => {
     const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    if (socket.meetingId !== formattedRoom) return;
     console.log(`User left meeting room: ${formattedRoom}`);
     socket.to(formattedRoom).emit("user-left");
     socket.leave(formattedRoom);
@@ -1773,6 +2202,9 @@ io.on("connection", (socket) => {
 
   socket.on("chat-message", ({ meetingId, message }) => {
     const formattedRoom = meetingId.startsWith("meeting_") ? meetingId : `meeting_${meetingId}`;
+    if (socket.meetingId !== formattedRoom || !message || typeof message.text !== "string") return;
+    message.text = message.text.trim().slice(0, 2000);
+    if (!message.text) return;
     console.log(`Forwarding chat message for room: ${formattedRoom}`);
     socket.to(formattedRoom).emit("chat-message", { message });
   });
@@ -1785,6 +2217,21 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server is running on http://0.0.0.0:${PORT}`);
+dbReady.then(() => {
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server is running on http://0.0.0.0:${PORT}`);
+  });
+}).catch(error => {
+  console.error("Server startup aborted because database initialization failed:", error);
+  process.exit(1);
 });
+
+async function shutdown(signal) {
+  console.log(`${signal} received. Shutting down gracefully.`);
+  server.close(async () => {
+    try { await db.closeDb(); } finally { process.exit(0); }
+  });
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

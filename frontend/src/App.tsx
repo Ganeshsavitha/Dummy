@@ -23,6 +23,19 @@ import AdminMonitoring from './components/interview/AdminMonitoring';
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:3000'
   : `${window.location.protocol}//${window.location.host}`;
+
+const browserFetch = window.fetch.bind(window);
+window.fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const requestUrl = new URL(rawUrl, window.location.origin);
+  if (requestUrl.pathname.startsWith('/api/')) {
+    const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+    const token = localStorage.getItem('hiregrad_token');
+    if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+    init = { ...init, headers };
+  }
+  return browserFetch(input, init);
+};
 let socket: any = null;
 
 const SUBJECT_METADATA: Record<string, {
@@ -115,11 +128,11 @@ export default function App() {
         
         // Dynamically add notifications only for this student's scheduled interviews
         if (user.role === 'student') {
-          const scheduledInterviews = data.interviews.filter((i: any) => i.status === 'scheduled' || i.status === 'waiting');
+          const scheduledInterviews = data.interviews.filter((i: any) => (i.status === 'scheduled' || i.status === 'waiting') && i.invitationStatus !== 'declined');
           const interviewNotifications = scheduledInterviews.map((i: any) => ({
             id: `n_interview_${i.id}`,
-            title: 'Upcoming HR Interview',
-            message: `You have an upcoming ${i.type} Round interview scheduled for ${i.date} at ${i.time}. Meeting Code: ${i.meetingId}`,
+            title: i.invitationStatus === 'accepted' ? 'Accepted HR Interview' : 'New HR Interview Invitation',
+            message: `${i.hrName || 'HR'} invited you to a ${i.type} interview on ${i.date} at ${i.time}.`,
             time: 'Scheduled',
             unread: true
           }));
@@ -559,7 +572,7 @@ export default function App() {
   useEffect(() => {
     fetchDrives();
     fetchNetworkInfo();
-    socket = io(API_BASE);
+    socket = io(API_BASE, { auth: { token: localStorage.getItem('hiregrad_token') } });
 
     socket.on('assessment-started', (data: any) => {
       setLiveDriveAlert(data);
@@ -627,6 +640,11 @@ export default function App() {
       });
     });
 
+    socket.on('interview-invitation-response', (data: any) => {
+      setLiveInterviews(prev => prev.map(i => i.id === data.interviewId ? data.interview : i));
+      triggerToast(`Student ${data.response} the interview invitation.`);
+    });
+
     socket.on('new-interview-scheduled', (data: any) => {
       console.log("[Socket] Received new-interview-scheduled event:", data);
       fetchInterviews();
@@ -642,6 +660,9 @@ export default function App() {
     if (socket && user?.role === 'student' && user.id) {
       socket.emit("join-student-room", { studentId: user.id });
       console.log(`[Socket] Joined student room: student_${user.id}`);
+    }
+    if (socket && user?.role === 'company' && user.id) {
+      socket.emit("join-hr-room", { hrId: user.id });
     }
   }, [user]);
 
@@ -796,6 +817,8 @@ export default function App() {
           socket.emit('join-session', { username: data.company.username, role: 'company', driveId: 'hr' });
           triggerToast(`Welcome back Recruiter, logged into ${data.company.companyName}!`);
           localStorage.setItem('hiregrad_token', data.token);
+          socket.auth = { token: data.token };
+          socket.disconnect().connect();
         } else {
           alert(data.message || 'Invalid recruiter credentials');
         }
@@ -814,6 +837,8 @@ export default function App() {
           setView('dashboard');
           triggerToast(`Logged in successfully as ${data.student.fullName}`);
           localStorage.setItem('hiregrad_token', data.token);
+          socket.auth = { token: data.token };
+          socket.disconnect().connect();
           
           try {
             const regRes = await fetch(`${API_BASE}/api/placement/registrations/${data.student.username}`);
@@ -843,6 +868,8 @@ export default function App() {
           setView('stats');
           triggerToast('Welcome back Admin!');
           localStorage.setItem('hiregrad_token', data.token);
+          socket.auth = { token: data.token };
+          socket.disconnect().connect();
         } else {
           alert(data.message || 'Invalid Admin credentials.');
         }
@@ -1602,10 +1629,15 @@ export default function App() {
 
   // CSV report downloads
   const exportCSVResults = () => {
+    const csvCell = (value: unknown) => {
+      let text = String(value ?? '');
+      if (/^[=+\-@]/.test(text)) text = `'${text}`;
+      return `"${text.replace(/"/g, '""')}"`;
+    };
     const headers = ['Candidate ID', 'Scores', 'Status'];
     const rows = driveCandidates.map(c => [c.username, Object.entries(c.scores).map(([r, s]) => `${r}:${s}`).join('; '), c.status]);
     const csvContent = "data:text/csv;charset=utf-8," 
-      + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+      + [headers.map(csvCell).join(','), ...rows.map(e => e.map(csvCell).join(','))].join('\n');
     const link = document.createElement("a");
     link.setAttribute("href", encodeURI(csvContent));
     link.setAttribute("download", "recruitment_results_report.csv");
@@ -1623,17 +1655,20 @@ export default function App() {
       return;
     }
 
-    const roundsHtml = rounds.map(r => `<th>${r.name}</th>`).join('');
+    const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+    }[character] as string));
+    const roundsHtml = rounds.map(r => `<th>${escapeHtml(r.name)}</th>`).join('');
     const rowsHtml = driveCandidates.map(c => {
       const scoresHtml = rounds.map(r => {
         const score = c.scores[r.id] !== undefined ? c.scores[r.id] : '-';
-        return `<td>${score}</td>`;
+        return `<td>${escapeHtml(score)}</td>`;
       }).join('');
       return `
         <tr>
-          <td><strong>${c.username}</strong></td>
+          <td><strong>${escapeHtml(c.username)}</strong></td>
           ${scoresHtml}
-          <td><span class="status ${c.status.toLowerCase()}">${c.status}</span></td>
+          <td><span class="status ${escapeHtml(String(c.status).toLowerCase().replace(/[^a-z-]/g, ''))}">${escapeHtml(c.status)}</span></td>
         </tr>
       `;
     }).join('');
@@ -1641,7 +1676,7 @@ export default function App() {
     const htmlContent = `
       <html>
         <head>
-          <title>${selectedDrive.name} - Recruitment Results Report</title>
+          <title>${escapeHtml(selectedDrive.name)} - Recruitment Results Report</title>
           <style>
             body {
               font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -1737,9 +1772,9 @@ export default function App() {
           </div>
 
           <div class="meta-grid">
-            <div class="meta-item"><strong>Drive Name:</strong> ${selectedDrive.name}</div>
-            <div class="meta-item"><strong>Target Role:</strong> ${jobRoleInput || 'Systems Engineer Trainee'}</div>
-            <div class="meta-item"><strong>Company Name:</strong> ${driveCompanyName}</div>
+            <div class="meta-item"><strong>Drive Name:</strong> ${escapeHtml(selectedDrive.name)}</div>
+            <div class="meta-item"><strong>Target Role:</strong> ${escapeHtml(jobRoleInput || 'Systems Engineer Trainee')}</div>
+            <div class="meta-item"><strong>Company Name:</strong> ${escapeHtml(driveCompanyName)}</div>
             <div class="meta-item"><strong>Total Candidates Sourced:</strong> ${driveCandidates.length}</div>
           </div>
 
@@ -2859,6 +2894,10 @@ export default function App() {
                 onJoinLobby={(interview) => {
                   joinInterviewLobby(interview);
                 }}
+                onInvitationUpdated={(updated) => {
+                  setLiveInterviews(prev => prev.map(i => i.id === updated.id ? updated : i));
+                  triggerToast(updated.invitationStatus === 'accepted' ? 'Interview invitation accepted.' : 'Interview invitation declined.');
+                }}
               />
             )}
 
@@ -2884,12 +2923,15 @@ export default function App() {
                       'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}`
                     },
                     body: JSON.stringify({ status: 'ongoing' })
-                  }).then(() => {
+                  }).then(async res => {
+                    const data = await res.json();
+                    if (!res.ok || !data.success) throw new Error(data.message || 'Unable to enter the lobby.');
                     fetchInterviews();
-                    setView('shared-live-interview');
+                    setActiveInterview(data.interview);
+                    triggerToast('You are waiting for the HR recruiter to start the interview.');
                   }).catch(err => {
                     console.error('Failed to update status:', err);
-                    setView('shared-live-interview');
+                    alert(err.message || 'Unable to enter the interview lobby.');
                   });
                 }}
               />
@@ -3950,7 +3992,7 @@ export default function App() {
                       <tr>
                         <th>Company Name</th>
                         <th>Recruiter Username</th>
-                        <th>Access Code (Password)</th>
+                        <th>Credential Storage</th>
                         <th>Status</th>
                         <th style={{ textAlign: 'center' }}>Action</th>
                       </tr>
@@ -3960,7 +4002,7 @@ export default function App() {
                         <tr key={idx}>
                           <td><strong>{comp.companyName}</strong></td>
                           <td>{comp.username}</td>
-                          <td><code>{comp.password}</code></td>
+                          <td><span className="status-badge">Protected</span></td>
                           <td><span style={{ color: 'var(--success)' }}>Authorized</span></td>
                           <td style={{ textAlign: 'center' }}>
                             <button
