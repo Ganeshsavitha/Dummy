@@ -26,13 +26,17 @@ const dbReady = db.initDb().then(() => {
 const app = express();
 
 app.disable("x-powered-by");
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+const configuredOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map(origin => origin.trim())
   .filter(Boolean);
+const renderOrigin = process.env.RENDER_EXTERNAL_HOSTNAME
+  ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}`
+  : null;
+const allowedOrigins = new Set([...configuredOrigins, ...(renderOrigin ? [renderOrigin] : [])]);
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || !IS_PRODUCTION || allowedOrigins.includes(origin)) return callback(null, true);
+    if (!origin || !IS_PRODUCTION || allowedOrigins.has(origin)) return callback(null, true);
     return callback(new Error("Origin is not allowed by CORS policy."));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -2056,7 +2060,7 @@ const socketIo = require("socket.io");
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: IS_PRODUCTION ? allowedOrigins : true,
+    origin: IS_PRODUCTION ? [...allowedOrigins] : true,
     methods: ["GET", "POST"]
   }
 });
