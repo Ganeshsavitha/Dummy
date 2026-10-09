@@ -24,7 +24,7 @@ export default function ScheduleForm({ onBack, onScheduleAdded }: ScheduleFormPr
         const API_BASE = window.location.origin;
         const res = await fetch(`${API_BASE}/api/placement/students`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}`
+            'Authorization': `Bearer ${sessionStorage.getItem('hiregrad_token')}`
           }
         });
         const data = await res.json();
@@ -62,7 +62,7 @@ export default function ScheduleForm({ onBack, onScheduleAdded }: ScheduleFormPr
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}`
+        'Authorization': `Bearer ${sessionStorage.getItem('hiregrad_token')}`
       },
       body: JSON.stringify({
         studentId: selectedStudent.id,

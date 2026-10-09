@@ -30,7 +30,7 @@ window.fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
   const requestUrl = new URL(rawUrl, window.location.origin);
   if (requestUrl.pathname.startsWith('/api/')) {
     const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
-    const token = localStorage.getItem('hiregrad_token');
+    const token = sessionStorage.getItem('hiregrad_token');
     if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
     init = { ...init, headers };
   }
@@ -115,7 +115,7 @@ export default function App() {
   const [activeInterview, setActiveInterview] = useState<Interview | null>(null);
 
   const fetchInterviews = async () => {
-    const token = localStorage.getItem('hiregrad_token');
+    const token = sessionStorage.getItem('hiregrad_token');
     if (!token || !user) return;
     try {
       const rolePath = user.role === 'student' ? 'student' : 'hr';
@@ -150,7 +150,7 @@ export default function App() {
 
   const joinInterviewLobby = async (interview: any) => {
     try {
-      const token = localStorage.getItem('hiregrad_token');
+      const token = sessionStorage.getItem('hiregrad_token');
       const res = await fetch(`${API_BASE}/api/placement/interviews/${interview.meetingId}/verify`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -572,7 +572,7 @@ export default function App() {
   useEffect(() => {
     fetchDrives();
     fetchNetworkInfo();
-    socket = io(API_BASE, { auth: { token: localStorage.getItem('hiregrad_token') } });
+    socket = io(API_BASE, { auth: { token: sessionStorage.getItem('hiregrad_token') } });
 
     socket.on('assessment-started', (data: any) => {
       setLiveDriveAlert(data);
@@ -668,7 +668,7 @@ export default function App() {
 
   useEffect(() => {
     const checkSession = async () => {
-      const token = localStorage.getItem('hiregrad_token');
+      const token = sessionStorage.getItem('hiregrad_token');
       if (token) {
         try {
           const res = await fetch(`${API_BASE}/api/placement/auth/me`, {
@@ -701,11 +701,11 @@ export default function App() {
               setView('stats');
             }
           } else {
-            localStorage.removeItem('hiregrad_token');
+            sessionStorage.removeItem('hiregrad_token');
           }
         } catch (err) {
           console.error("Session auto-login error:", err);
-          localStorage.removeItem('hiregrad_token');
+          sessionStorage.removeItem('hiregrad_token');
         }
       }
     };
@@ -816,7 +816,7 @@ export default function App() {
           setRecruitmentStep(1); // Horizontal Stepper begins at Step 1
           socket.emit('join-session', { username: data.company.username, role: 'company', driveId: 'hr' });
           triggerToast(`Welcome back Recruiter, logged into ${data.company.companyName}!`);
-          localStorage.setItem('hiregrad_token', data.token);
+          sessionStorage.setItem('hiregrad_token', data.token);
           socket.auth = { token: data.token };
           socket.disconnect().connect();
         } else {
@@ -836,7 +836,7 @@ export default function App() {
           setStudentSkills(data.student.skills);
           setView('dashboard');
           triggerToast(`Logged in successfully as ${data.student.fullName}`);
-          localStorage.setItem('hiregrad_token', data.token);
+          sessionStorage.setItem('hiregrad_token', data.token);
           socket.auth = { token: data.token };
           socket.disconnect().connect();
           
@@ -867,7 +867,7 @@ export default function App() {
           });
           setView('stats');
           triggerToast('Welcome back Admin!');
-          localStorage.setItem('hiregrad_token', data.token);
+          sessionStorage.setItem('hiregrad_token', data.token);
           socket.auth = { token: data.token };
           socket.disconnect().connect();
         } else {
@@ -884,7 +884,7 @@ export default function App() {
     setPasswordInput('');
     setFullNameInput('');
     setConfirmPasswordInput('');
-    localStorage.removeItem('hiregrad_token');
+    sessionStorage.removeItem('hiregrad_token');
   };
 
   const handleDeleteUser = async (username: string) => {
@@ -2920,7 +2920,7 @@ export default function App() {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}`
+                      'Authorization': `Bearer ${sessionStorage.getItem('hiregrad_token')}`
                     },
                     body: JSON.stringify({ status: 'ongoing' })
                   }).then(async res => {
@@ -2990,7 +2990,7 @@ export default function App() {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}`
+                      'Authorization': `Bearer ${sessionStorage.getItem('hiregrad_token')}`
                     },
                     body: JSON.stringify({ status: 'ongoing' })
                   }).then(() => {
@@ -3016,7 +3016,7 @@ export default function App() {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}`
+                      'Authorization': `Bearer ${sessionStorage.getItem('hiregrad_token')}`
                     },
                     body: JSON.stringify({
                       communicationScore: feedback.communicationScore,

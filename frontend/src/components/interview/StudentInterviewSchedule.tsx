@@ -17,7 +17,7 @@ export default function StudentInterviewSchedule({ interviews, onJoinLobby, onIn
     try {
       const res = await fetch(`${window.location.origin}/api/placement/interviews/${interview.id}/respond`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('hiregrad_token')}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionStorage.getItem('hiregrad_token')}` },
         body: JSON.stringify({ response })
       });
       const data = await res.json();

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, CameraOff, Mic, MicOff, Monitor, PhoneOff, Send, MessageSquare, User, Calendar, Award, ShieldAlert } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, Monitor, PhoneOff, Send, MessageSquare, User, Calendar, Award, ShieldAlert, Video } from 'lucide-react';
 import type { Interview, Feedback } from './mockData';
 import CandidateInfoPanel from './CandidateInfoPanel';
 import EvaluationForm from './EvaluationForm';
@@ -35,6 +35,7 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
   
   // WebRTC Connection States
   const [remoteStreamActive, setRemoteStreamActive] = useState(false);
+  const [remotePlaybackBlocked, setRemotePlaybackBlocked] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -211,11 +212,11 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
   useEffect(() => {
     let active = true;
     const iceCandidateQueue: any[] = [];
+    let makingOffer = false;
 
     const initPeerConnection = () => {
-      if (peerConnectionRef.current) {
-        console.log("[WebRTC] Closing existing RTCPeerConnection before reset...");
-        peerConnectionRef.current.close();
+      if (peerConnectionRef.current && peerConnectionRef.current.connectionState !== 'closed') {
+        return peerConnectionRef.current;
       }
 
       console.log("[WebRTC] Creating new RTCPeerConnection...");
@@ -280,13 +281,28 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
         
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = remoteStreamInstanceRef.current;
-          remoteVideoRef.current.play().catch((err: any) => {
+          remoteVideoRef.current.play().then(() => setRemotePlaybackBlocked(false)).catch((err: any) => {
+            setRemotePlaybackBlocked(true);
             console.warn("[WebRTC] Play failed (browser autoplay restrictions):", err);
           });
         }
       };
 
       return pc;
+    };
+
+    const createAndSendOffer = async () => {
+      const pc = initPeerConnection();
+      if (makingOffer || pc.signalingState !== 'stable') return;
+      makingOffer = true;
+      try {
+        const offer = await pc.createOffer();
+        if (pc.signalingState !== 'stable') return;
+        await pc.setLocalDescription(offer);
+        socket.emit("offer", { meetingId: interview.meetingId, offer: pc.localDescription });
+      } finally {
+        makingOffer = false;
+      }
     };
 
     const processQueuedIceCandidates = async (pc: RTCPeerConnection) => {
@@ -333,7 +349,7 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
         }
 
         // Initialize Peer Connection
-        const pc = initPeerConnection();
+        initPeerConnection();
 
         // Setup Socket event listeners
         if (userRole === 'hr') {
@@ -342,11 +358,8 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
             console.log(`[WebRTC] HR joined room. Active participants count: ${data.numClients}`);
             if (data.numClients > 1) {
               console.log("[WebRTC] Student is already present. HR initiating fresh offer...");
-              const freshPc = initPeerConnection();
               try {
-                const offer = await freshPc.createOffer();
-                await freshPc.setLocalDescription(offer);
-                socket.emit("offer", { meetingId: interview.meetingId, offer: { type: offer.type, sdp: offer.sdp } });
+                await createAndSendOffer();
               } catch (err) {
                 console.error("[WebRTC] Failed to create offer on join-ack:", err);
               }
@@ -356,11 +369,8 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
           // Student joined room later
           socket.on("user-joined", async (data: any) => {
             console.log(`[WebRTC Signaling] Student joined: ${data.userId}. HR initiating fresh offer...`);
-            const freshPc = initPeerConnection();
             try {
-              const offer = await freshPc.createOffer();
-              await freshPc.setLocalDescription(offer);
-              socket.emit("offer", { meetingId: interview.meetingId, offer: { type: offer.type, sdp: offer.sdp } });
+              await createAndSendOffer();
             } catch (err) {
               console.error("[WebRTC] Failed to create offer on user-joined:", err);
             }
@@ -381,14 +391,15 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
         } else {
           // Student receives offer from HR
           socket.on("offer", async (data: any) => {
-            console.log("[WebRTC Signaling] Student received offer. Resetting connection and creating response answer...");
-            const freshPc = initPeerConnection();
+            console.log("[WebRTC Signaling] Student received offer. Creating response answer...");
+            const pc = initPeerConnection();
             try {
-              await freshPc.setRemoteDescription(new RTCSessionDescription(data.offer));
-              await processQueuedIceCandidates(freshPc);
-              const answer = await freshPc.createAnswer();
-              await freshPc.setLocalDescription(answer);
-              socket.emit("answer", { meetingId: interview.meetingId, answer: { type: answer.type, sdp: answer.sdp } });
+              if (pc.signalingState !== 'stable') return;
+              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+              await processQueuedIceCandidates(pc);
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              socket.emit("answer", { meetingId: interview.meetingId, answer: pc.localDescription });
             } catch (err) {
               console.error("[WebRTC] Failed to handle offer:", err);
             }
@@ -568,6 +579,16 @@ export default function LiveMeeting({ interview, userRole, socket, onLeave, onSu
               zIndex: 1
             }}
           />
+
+          {remotePlaybackBlocked && remoteStreamActive && (
+            <button
+              className="btn-primary"
+              style={{ position: 'absolute', zIndex: 4 }}
+              onClick={() => remoteVideoRef.current?.play().then(() => setRemotePlaybackBlocked(false))}
+            >
+              <Video size={16} /> Click to show remote video
+            </button>
+          )}
 
           {!remoteStreamActive && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', position: 'absolute', zIndex: 2 }}>
